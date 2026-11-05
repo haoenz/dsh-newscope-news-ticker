@@ -1,0 +1,15 @@
+- insert:
+    - id: newscope-news-ticker
+      name: dsh-newscope-news-ticker
+      config:
+        enabled: true
+        newscopeUrl: http://127.0.0.1:8080
+        minScore: 7
+        maxAgeHours: 48
+        refreshMinutes: 5
+        weights: { finance: 55, technology: 25, science: 15, general: 5 }
+        scrollSpeed: medium
+        pauseOnHover: true
+        openInNewTab: true
+        onlyWhenRunning: true
+        showCategory: true

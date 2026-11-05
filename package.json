@@ -1,0 +1,56 @@
+{
+  "name": "dsh-newscope-news-ticker",
+  "version": "1.0.0",
+  "description": "A Newscope-backed interactive news ticker for the DSH Agent running status line.",
+  "type": "module",
+  "license": "MIT",
+  "packageManager": "pnpm@12.16.1",
+  "engines": { "node": ">=22.19" },
+  "dsh": {
+    "engines": { "dsh": ">=0.2.1-rc.3" },
+    "bundle": { "patch": "./cordis.patch.yml" },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-plugin-manager"
+      ]
+    }
+  },
+  "exports": {
+    ".": "./lib/index.js",
+    "./client": "./client.js",
+    "./news": "./lib/news.js",
+    "./config": "./lib/config.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib/*.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg",
+    "README.md",
+    "README.zh.md",
+    "VERIFICATION.zh.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "test:host": "node --test test/host.test.js",
+    "test:client": "node --test test/client.test.js",
+    "check": "node --check lib/index.js && node --check client.js"
+  },
+  "dependencies": {
+    "@deepseek-ai/schemastery": "^3.18.5",
+    "fast-xml-parser": "^5.3.4"
+  },
+  "devDependencies": {
+    "jsdom": "^27.1.0",
+    "react": "^18.3.1"
+  }
+}

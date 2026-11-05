@@ -1,0 +1,9 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.tgz
+coverage/
+.nyc_output/
+.DS_Store
+*.log

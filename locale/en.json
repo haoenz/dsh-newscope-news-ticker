@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Newscope News Ticker",
+    "description": "Turns the Agent running status line into a weighted, interactive Newscope news ticker with pause and original-article links."
+  }
+}

@@ -1,20 +1,28 @@
 {
   "name": "dsh-newscope-news-ticker",
-  "version": "1.0.0",
+  "version": "1.2.0",
   "description": "A Newscope-backed interactive news ticker for the DSH Agent running status line.",
   "type": "module",
   "license": "MIT",
   "packageManager": "pnpm@12.16.1",
-  "engines": { "node": ">=22.19" },
+  "engines": {
+    "node": ">=22.19"
+  },
   "dsh": {
-    "engines": { "dsh": ">=0.2.1-rc.3" },
-    "bundle": { "patch": "./cordis.patch.yml" },
+    "engines": {
+      "dsh": ">=0.2.1-rc.3"
+    },
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
     "client": {
       "platform": "web",
       "immediately": true,
       "inject": [
         "@deepseek-ai/dsh-client-ui-conversation",
-        "@deepseek-ai/dsh-client-ui-plugin-manager"
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-settings-shell"
       ]
     }
   },
@@ -43,14 +51,19 @@
     "test": "node --test test/*.test.js",
     "test:host": "node --test test/host.test.js",
     "test:client": "node --test test/client.test.js",
+    "test:browser": "node test/browser-acceptance.mjs",
     "check": "node --check lib/index.js && node --check client.js"
   },
   "dependencies": {
+    "@deepseek-ai/dsh-api-session-controller": "0.2.1-rc.3",
     "@deepseek-ai/schemastery": "^3.18.5",
+    "entities": "^9.0.0",
     "fast-xml-parser": "^5.3.4"
   },
   "devDependencies": {
     "jsdom": "^27.1.0",
-    "react": "^18.3.1"
+    "playwright": "^1.64.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   }
 }

@@ -7,3 +7,5 @@ coverage/
 .nyc_output/
 .DS_Store
 *.log
+.cache/stage-c-go/
+.dsh-dev/

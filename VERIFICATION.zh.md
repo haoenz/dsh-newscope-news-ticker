@@ -1,4 +1,36 @@
-# 实际验证记录（2026-11-04）
+# 实际验证记录
+
+## 阶段 E：设置、状态与隔离真实浏览器（2026-11-05）
+
+- **代码与验收完成，正式部署未执行。** 未重启正式 DSH 3080 / Newscope 8080；原进程 PID 90721 / 18443 保持不变。
+- `pnpm test`：**150/150 通过**；`pnpm run check`、`pnpm pack --dry-run` 与 `git diff --check` 通过。新增曝光次数、库存策略的 8 个设置控件，以及可见时每 30 秒刷新、15 秒超时的库存状态区；保存采用 revision 检查和叶字段 patch。
+- **真实 GUI 17/17 检查通过**：2026-11-05 22:52:14—22:53:15（Asia/Shanghai），Chromium 156.0.8078.4 + Xvfb，退出码 0；无跳过、页面异常或清理错误。使用真实 web-dev 3081、真实 Go 内存数据库服务 8082、本地无外网 LLM 8083 和新建专用会话；不是 jsdom/Vite/替代 GUI。
+- 覆盖设置校验/保存/刷新保留、原生 running 行、hover/键盘暂停、真实 hidden 标签不累计、三次独立可见机会与丢 ACK 同 ID 重试、刷新保留已读/重播、点击安全退场、多标签共享已读、L0→L1→L2+replay、低水位查询发现新高分抢占、503 stale/恢复、旧 API 的 RSS 限制提示、空库存保留原生计时。
+- 单篇文章连续可见时，跨克隆/循环不重复累计；通过真实标签切换制造独立机会。仅关闭 Playwright 自动化强制可见性，未改应用 DOM、visibility getter、时钟或几何。
+- Newscope repository/server `-race` 通过；独立 Go 夹具收到 SIGTERM 后完成禁抓源审计，退出码 0。所有测试均为已有库存查询，审计 `noFeedFetch=true`、`feedFetchRequests=0`。
+- 本地模型 9 次测试流均取消、活动流为零；验收服务停止、web-dev 原始配置恢复。专用测试会话保留作审计，不运行或取消其他会话。
+- 范围边界：不代表生产数据压力测试；本轮关闭了翻译/语义去重，不冒充真实外部模型验收。扫描上限、损坏存储等故障组合仍由自动化覆盖。
+
+复现及安全边界：[阶段 E 验收说明](<docs/stage-e-browser-acceptance.zh.md>)；本机私有证据：[报告](<.dsh-dev/stage-e-evidence/report.json>)、[设置](<.dsh-dev/stage-e-evidence/settings.png>)、[重播](<.dsh-dev/stage-e-evidence/replay.png>)、[RSS 限制](<.dsh-dev/stage-e-evidence/rss-limited.png>)、[空库存](<.dsh-dev/stage-e-evidence/native-empty.png>)。截图含 GUI 信息，不公开发布。
+
+---
+
+以下为历史验证记录，只代表当时的版本和环境；旧测试数量、部署描述与未验收项不覆盖上述最新结论。
+
+## 1.2.0 跨源语义去重（2026-11-05）
+
+- `pnpm test`：32/32 通过；`pnpm run check`、`pnpm pack --dry-run` 与 `git diff --check` 通过。
+- 覆盖禁用零模型调用、跨源同事件分组合并、排序代表保留、非法/空值/布尔/越界 ID 整组拒绝、候选集缓存、模型回退与覆盖、故障/畸形响应放行、100 条与 300 字符分析上限。
+- Host 联动测试确认先语义去重、后标题翻译，重复文章不进入翻译请求。
+- 真实 DSH 模型去重与页面效果待 Host 重启后验收；本次不重启运行中的 Host。
+
+## 1.1.0 标题翻译（2026-11-05）
+
+- `pnpm test`：25/25 通过（含浏览器 DOM 仅显示中文标题）；`pnpm run check`、`pnpm pack --dry-run` 与 `git diff --check` 通过。
+- 使用模拟 DSH LLM 流验证 provider/model 路由、中英混合与日语假名识别、自然中文输出、持久缓存跨实例复用与并发合并、失败不显示英文、新模型配置不复用旧快照，以及不同配置在请求阻塞或同批完成时均返回各自结果。
+- 验证禁用翻译零模型/缓存副作用、单轮 100 条/10 批次上限、流式文本按块组装，以及无 finish、max-tokens 和 tool-call 等异常终止拒绝入库。
+- 标题翻译通过 Host 的 `ctx.llm` 调用，不新增 endpoint 或 API Key 设置；浏览器仍只读取同源新闻接口。
+- 真实模型翻译和真实 RSS 展示需在 NewScope 分类模型配置完成、RSS 有文章后验收。
 
 ## 环境
 

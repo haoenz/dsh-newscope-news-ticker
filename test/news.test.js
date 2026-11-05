@@ -33,6 +33,17 @@ test('parses actual Newscope RSS fields, filters, classifies and deduplicates', 
   assert.equal(articles[2].category, 'science');
 });
 
+test('decodes numeric, hexadecimal and named HTML entities in titles exactly once after XML parsing', () => {
+  const articles = parseNewscopeArticles(feed([
+    item({ id: 'entities', title: 'SpaceX&#39;s &#34;chip&#34; financing &#x2014; &hellip;', url: 'https://example.com/entities' }),
+    item({ id: 'unknown', title: 'Unknown &bogus; and double-encoded &amp;#39;', url: 'https://example.com/unknown' }),
+    item({ id: 'single-pass', title: 'Single pass &amp;amp;#39;', url: 'https://example.com/single-pass' }),
+  ]), resolveConfig(), NOW);
+  assert.equal(articles.find((article) => article.id === 'entities').title, 'SpaceX\'s "chip" financing — …');
+  assert.equal(articles.find((article) => article.id === 'unknown').title, 'Unknown &bogus; and double-encoded \'');
+  assert.equal(articles.find((article) => article.id === 'single-pass').title, 'Single pass &#39;');
+});
+
 test('source mapping is configurable and unknown topics fall back to general', () => {
   const config = resolveConfig({ sourceMap: { finance: ['example.com'] } });
   const [article] = parseNewscopeArticles(feed([

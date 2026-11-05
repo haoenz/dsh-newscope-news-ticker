@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { NewsCache } from '../lib/index.js';
+import { apply, NewsCache, MODELS_ROUTE } from '../lib/index.js';
 
 const xml = `<?xml version="1.0"?><rss><channel><item>
 <title>[8.8] Example</title><link>https://example.com/news</link><guid>one</guid>
@@ -10,6 +10,7 @@ const xml = `<?xml version="1.0"?><rss><channel><item>
 function successFetch(counter) {
   return async (url) => {
     counter.calls.push(url);
+    if (url.includes('/api/v1/articles?')) return new Response(null, { status: 404 });
     if (url.includes('/api/v1/status')) return Response.json({ status: 'ok', version: 'test' });
     return new Response(xml, { status: 200, headers: { 'content-type': 'application/rss+xml' } });
   };
@@ -49,6 +50,38 @@ test('unavailable Newscope without cache returns an empty graceful payload', asy
   assert.equal(snapshot.service, 'unavailable');
   assert.deepEqual(snapshot.items, []);
   assert.doesNotMatch(snapshot.error, /127\.0\.0\.1/);
+});
+
+test('models route exposes the DSH catalog through the Host without credentials', async () => {
+  const registrations = [];
+  const ctx = {
+    llm: {
+      listProviders: () => [{ id: 'kt', name: 'KT' }],
+      listModels: async (provider) => {
+        assert.equal(provider, 'kt');
+        return [{ id: 'deepseek-flash', name: 'DeepSeek Flash' }];
+      },
+      resolveModelInfo: async () => ({}),
+    },
+    agentDefaultModel: { currentSelection: () => ({ provider: 'kt', model: 'deepseek-flash' }) },
+    effect(fn) { return fn(); },
+    webServer: { register(options) { registrations.push(options); return () => {}; } },
+  };
+  apply(ctx);
+  const route = registrations.find((entry) => entry.path === MODELS_ROUTE);
+  assert.ok(route);
+  const req = { method: 'GET', headers: {}, socket: { remoteAddress: '127.0.0.1' } };
+  const res = {
+    writeHead(status, headers) { this.status = status; this.headers = headers; },
+    end(body) { this.body = body; },
+  };
+  await route.handler(req, res);
+  assert.equal(res.status, 200);
+  const payload = JSON.parse(res.body);
+  assert.deepEqual(payload.default, { provider: 'kt', model: 'deepseek-flash' });
+  assert.equal(payload.groups[0].id, 'kt');
+  assert.equal(payload.groups[0].models[0].name, 'DeepSeek Flash');
+  assert.equal('apiKey' in payload, false);
 });
 
 test('disabled ticker performs no Newscope requests', async () => {

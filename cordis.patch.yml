@@ -13,3 +13,7 @@
         openInNewTab: true
         onlyWhenRunning: true
         showCategory: true
+        translationEnabled: false
+        translationModel: ''
+        semanticDedupEnabled: false
+        semanticDedupModel: ''

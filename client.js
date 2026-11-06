@@ -1261,7 +1261,7 @@ window.__ModuleLoader__.load({
                   timeout: 'Inventory status request timed out. Refresh to retry.',
                 },
                 settings: {
-                  nav: 'Newscope News Ticker', summary: 'News source, scheduling, display, translation and semantic deduplication.',
+                  nav: 'News Ticker', summary: 'News source, scheduling, display, translation and semantic deduplication.',
                   loading: 'Loading Newscope settings…', unavailable: 'Newscope settings are unavailable.',
                   readOnly: 'This profile is read-only.', source: 'News source',
                   newscopeUrl: 'Newscope Host URL', newscopeUrlHint: 'The DSH Host queries existing articles at this address; it never triggers source fetching.',
@@ -1330,7 +1330,7 @@ window.__ModuleLoader__.load({
                   timeout: '库存状态请求超时，可刷新重试。',
                 },
                 settings: {
-                  nav: 'Newscope 新闻跑马灯', summary: '配置新闻来源、调度、展示、标题翻译和跨源语义去重。',
+                  nav: '新闻跑马灯', summary: '配置新闻来源、调度、展示、标题翻译和跨源语义去重。',
                   loading: '正在加载 Newscope 设置…', unavailable: '当前无法读取 Newscope 设置。',
                   readOnly: '当前 profile 为只读。', source: '新闻来源',
                   newscopeUrl: 'Newscope Host 地址', newscopeUrlHint: 'DSH Host 从该地址查询已入库文章，不触发源站抓取。',

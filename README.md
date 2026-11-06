@@ -8,7 +8,7 @@ service and is disabled by default; provider credentials never enter the browser
 Optional cross-source semantic deduplication also uses the DSH LLM service and runs
 before title translation.
 
-See the [Chinese guide](<README.zh.md>) for configuration and operations. Settings are available under **Settings → Newscope News Ticker** and **Plugins → Installed → Newscope News Ticker → package detail or the `newscope-news-ticker` row**, using DSH `configForms` and explicit saves.
+See the [Chinese guide](<README.zh.md>) for configuration and operations. Settings are available under **Settings → News Ticker** and **Plugins → Installed → Newscope News Ticker → package detail or the `newscope-news-ticker` row**, using DSH `configForms` and explicit saves.
 
 The read-aware inventory changes below are **Unreleased source changes**, not a claim that the running Host/Newscope has been upgraded or that real-browser acceptance has passed.
 
@@ -32,7 +32,7 @@ pnpm run check
 
 ## Settings
 
-Open **Settings → Newscope News Ticker**, or use the package/row configuration on the installed Plugins page. Valid changes are saved automatically and applied immediately; there is no Save button. **Show news ticker** has three levels: **Off**, **While Agent is running**, and **Always**. Always additionally mounts the ticker above the composer while idle. The setting is stored as the single `displayMode` field; the former two boolean fields are intentionally removed during development.
+Open **Settings → News Ticker**, or use the package/row configuration on the installed Plugins page. Valid changes are saved automatically and applied immediately; there is no Save button. **Show news ticker** has three levels: **Off**, **While Agent is running**, and **Always**. Always additionally mounts the ticker above the composer while idle. The setting is stored as the single `displayMode` field; the former two boolean fields are intentionally removed during development.
 
 ### When a running-only ticker becomes idle
 

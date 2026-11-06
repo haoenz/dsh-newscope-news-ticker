@@ -87,7 +87,7 @@ test('models route exposes the DSH catalog through the Host without credentials'
 test('disabled ticker performs no Newscope requests', async () => {
   let calls = 0;
   const cache = new NewsCache(async () => { calls++; throw new Error('unexpected'); });
-  const snapshot = await cache.snapshot({ enabled: false });
+  const snapshot = await cache.snapshot({ displayMode: 'off' });
   assert.equal(snapshot.service, 'disabled');
   assert.equal(calls, 0);
 });

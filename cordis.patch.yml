@@ -2,7 +2,7 @@
     - id: newscope-news-ticker
       name: dsh-newscope-news-ticker
       config:
-        enabled: true
+        displayMode: running
         newscopeUrl: http://127.0.0.1:8080
         minScore: 7
         maxAgeHours: 48
@@ -11,7 +11,6 @@
         scrollSpeed: medium
         pauseOnHover: true
         openInNewTab: true
-        onlyWhenRunning: true
         showCategory: true
         translationEnabled: false
         translationModel: ''

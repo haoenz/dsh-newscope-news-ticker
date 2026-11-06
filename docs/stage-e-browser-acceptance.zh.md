@@ -32,14 +32,13 @@ pnpm exec playwright install-deps chromium
 **命令行 overlay 中的 ticker 配置会禁止对应的 `settings/mutate` 写入**，不能把待测试的 ticker 配置放进去，否则原生设置保存场景无法成立。应先停止专用 GUI，确认 [web-dev profile](<../../../.dsh/profiles/web-dev/cordis.patch.yml>)的原始内容已备份至 [原始备份](<../.dsh-dev/web-dev.patch.before-e.yml>)，再只在该可写 profile 的 ticker 插件节点配置下列值。保留其他节点，不覆盖已有原始备份；**正式 profile 绝不能改**。
 
 ```yaml
-enabled: true
+displayMode: always
 newscopeUrl: http://127.0.0.1:8082
 managementUrl: http://127.0.0.1:8082
 minScore: 7
 maxAgeHours: 48
 refreshMinutes: 1
 readAfterExposures: 3
-onlyWhenRunning: false
 scrollSpeed: fast
 pauseOnHover: true
 openInNewTab: true

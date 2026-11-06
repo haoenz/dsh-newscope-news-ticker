@@ -39,7 +39,7 @@ function article(id, category = 'finance') {
 function basePayload(ids = ['a']) {
   return {
     config: {
-      enabled: true, onlyWhenRunning: true, pauseOnHover: true, openInNewTab: true,
+      displayMode: 'running', pauseOnHover: true, openInNewTab: true,
       scrollSpeed: 'medium', refreshMinutes: 5,
     },
     items: ids.map((id) => article(id)),

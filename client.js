@@ -38,8 +38,8 @@ window.__ModuleLoader__.load({
       target[path[path.length - 1]] = next;
     }
     const CONFIG_KEYS = [
-      'enabled', 'newscopeUrl', 'managementUrl', 'minScore', 'maxAgeHours', 'refreshMinutes',
-      'weights', 'scrollSpeed', 'pauseOnHover', 'openInNewTab', 'onlyWhenRunning',
+      'displayMode', 'newscopeUrl', 'managementUrl', 'minScore', 'maxAgeHours', 'refreshMinutes',
+      'weights', 'scrollSpeed', 'pauseOnHover', 'openInNewTab',
       'translationEnabled', 'translationModel', 'semanticDedupEnabled', 'semanticDedupModel',
       'topicMap', 'sourceMap',
     ];
@@ -748,7 +748,7 @@ window.__ModuleLoader__.load({
 
     function settingsDraft(value = {}) {
       const draft = cloneJson(value) || {};
-      draft.displayMode = draft.enabled === false ? 'off' : draft.onlyWhenRunning === false ? 'always' : 'running';
+      draft.displayMode = draft.displayMode || 'running';
       for (const [key, , , fallback] of INVENTORY_FIELDS) {
         const path = key.split('.');
         if (atPath(draft, path) === undefined) setPath(draft, path, fallback);
@@ -796,8 +796,6 @@ window.__ModuleLoader__.load({
       for (const category of CATEGORIES) result.weights[category] = boundedNumber(draft.weights?.[category], 0, 1000);
       for (const key of ['topicMap', 'sourceMap']) result[key] = mappingValue(draft[key]);
       if (!['off', 'running', 'always'].includes(result.displayMode)) throw new Error('Invalid display mode');
-      result.enabled = result.displayMode !== 'off';
-      result.onlyWhenRunning = result.displayMode === 'running';
       if (!['slow', 'medium', 'fast'].includes(result.scrollSpeed)) throw new Error('Invalid scroll speed');
       for (const key of ['newscopeUrl', 'managementUrl']) {
         if (!result[key]) continue;
@@ -812,17 +810,13 @@ window.__ModuleLoader__.load({
 
     function settingsOperations(saved, draft) {
       const normalized = normalizeSettings(draft);
-      const baseline = settingsDraft(saved);
-      if (normalized.displayMode === baseline.displayMode) {
-        normalized.enabled = saved?.enabled;
-        normalized.onlyWhenRunning = saved?.onlyWhenRunning;
-      }
       const operations = [];
       for (const key of CONFIG_KEYS) {
         const value = normalized[key];
         if (JSON.stringify(saved?.[key]) === JSON.stringify(value)) continue;
         operations.push(value === undefined ? { op: 'unset', path: [key] } : { op: 'set', path: [key], value });
       }
+      const baseline = settingsDraft(saved);
       for (const [key] of INVENTORY_FIELDS) {
         const path = key.split('.');
         const value = atPath(normalized, path);
@@ -1039,10 +1033,6 @@ window.__ModuleLoader__.load({
       const edit = (path, value) => {
         const next = { ...draftRef.current };
         setPath(next, path, value);
-        if (path.length === 1 && path[0] === 'displayMode') {
-          next.enabled = value !== 'off';
-          next.onlyWhenRunning = value === 'running';
-        }
         replaceDraft(next);
         updateDirty(true);
         setSaveState('idle');
@@ -1301,7 +1291,7 @@ window.__ModuleLoader__.load({
           return () => { disposeSection(); disposeBundle(); disposeRow(); };
         }), 'newscope-news-ticker: native settings surfaces');
 
-        let latest = { items: [], config: { enabled: true, onlyWhenRunning: true } };
+        let latest = { items: [], config: { displayMode: 'running' } };
         const playback = createPlaybackState();
         playback.selectOwner = syncClockOwners;
         const readEvents = new ReadEventCoordinator(applyConfirmedRead);
@@ -1363,12 +1353,12 @@ window.__ModuleLoader__.load({
           if (disposed) return;
           const config = latest.config;
           const hasPlaybackItems = latest.items.length || [...controllers.values()].some((controller) => controller.items.length);
-          if (!config.enabled || !hasPlaybackItems) { detachAll(); return; }
+          if (config.displayMode === 'off' || !hasPlaybackItems) { detachAll(); return; }
           const desired = new Map();
           for (const row of document.querySelectorAll('[data-chat-running]')) {
             desired.set(row, row.querySelector('[class*="runningContent"]') || row);
           }
-          if (!config.onlyWhenRunning && !document.querySelector('[data-chat-running]')) {
+          if (config.displayMode === 'always' && !document.querySelector('[data-chat-running]')) {
             for (const dock of document.querySelectorAll('[data-slot="conversation.composer.dock"]')) desired.set(dock, dock);
           }
           for (const [host, controller] of controllers) {

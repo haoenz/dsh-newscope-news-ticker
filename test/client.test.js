@@ -22,7 +22,7 @@ const article = (id, category = 'finance') => ({
 function basePayload() {
   return {
     config: {
-      enabled: true, onlyWhenRunning: true, pauseOnHover: true, openInNewTab: true,
+      displayMode: 'running', pauseOnHover: true, openInNewTab: true,
       scrollSpeed: 'medium', refreshMinutes: 5,
     },
     items: [article('a'), article('b', 'technology')],
@@ -186,7 +186,7 @@ test('always display mode immediately mounts and removes the idle composer ticke
   await start({ running: false, configuration });
   assert.equal(document.querySelector('[data-newscope-ticker]'), null);
 
-  await configuration.mutate([{ op: 'set', path: ['onlyWhenRunning'], value: false }], 7);
+  await configuration.mutate([{ op: 'set', path: ['displayMode'], value: 'always' }], 7);
   await flush();
   const dock = document.querySelector('[data-slot="conversation.composer.dock"]');
   const ticker = dock.querySelector('[data-newscope-ticker]');
@@ -194,7 +194,7 @@ test('always display mode immediately mounts and removes the idle composer ticke
   assert.equal(dock.firstElementChild, ticker);
   assert.ok(ticker.hasAttribute('data-newscope-idle'));
 
-  await configuration.mutate([{ op: 'set', path: ['enabled'], value: false }], 8);
+  await configuration.mutate([{ op: 'set', path: ['displayMode'], value: 'off' }], 8);
   assert.equal(document.querySelector('[data-newscope-ticker]'), null, 'Off must remove the idle ticker immediately');
 });
 
@@ -313,10 +313,10 @@ test('initial outage leaves native UI alone; later failure uses last browser sna
 
 test('disabled config, session replacement and teardown restore the original status row', async () => {
   payload = basePayload();
-  const configuration = createConfiguration({ ...DEFAULT_CONFIG, enabled: false });
+  const configuration = createConfiguration({ ...DEFAULT_CONFIG, displayMode: 'off' });
   await start({ configuration });
   assert.equal(document.querySelector('[data-newscope-ticker]'), null);
-  await configuration.mutate([{ op: 'set', path: ['enabled'], value: true }], 7);
+  await configuration.mutate([{ op: 'set', path: ['displayMode'], value: 'running' }], 7);
   await flush();
   const oldRow = document.querySelector('[data-chat-running]');
   assert.ok(oldRow.querySelector('[data-newscope-ticker]'));
@@ -383,6 +383,8 @@ test('native settings expose three display modes and automatically save every va
   assert.ok(translationSelect.textContent.includes('跟随 DSH 默认模型（kt/deepseek-flash）'));
   const displaySelect = container.querySelector('select[data-setting="displayMode"]');
   assert.equal(displaySelect.value, 'running');
+  assert.equal('enabled' in configuration.getSnapshot().value, false);
+  assert.equal('onlyWhenRunning' in configuration.getSnapshot().value, false);
   assert.deepEqual([...displaySelect.options].map((option) => [option.value, option.textContent]), [
     ['off', '关闭'], ['running', '运行时显示'], ['always', '总是显示'],
   ]);
@@ -412,18 +414,17 @@ test('native settings expose three display modes and automatically save every va
   };
   await changeDisplay('always');
   assert.deepEqual(configuration.calls[2], {
-    ops: [{ op: 'set', path: ['onlyWhenRunning'], value: false }], expectedRevision: 9,
+    ops: [{ op: 'set', path: ['displayMode'], value: 'always' }], expectedRevision: 9,
   });
   assert.ok(document.querySelector('[data-newscope-ticker]'));
   await changeDisplay('off');
   assert.deepEqual(configuration.calls[3], {
-    ops: [{ op: 'set', path: ['enabled'], value: false }], expectedRevision: 10,
+    ops: [{ op: 'set', path: ['displayMode'], value: 'off' }], expectedRevision: 10,
   });
   assert.equal(document.querySelector('[data-newscope-ticker]'), null, 'Off must detach the visible ticker immediately');
   await changeDisplay('running');
   assert.deepEqual(configuration.calls[4], {
-    ops: [{ op: 'set', path: ['enabled'], value: true }, { op: 'set', path: ['onlyWhenRunning'], value: true }],
-    expectedRevision: 11,
+    ops: [{ op: 'set', path: ['displayMode'], value: 'running' }], expectedRevision: 11,
   });
   assert.ok(document.querySelector('[data-newscope-ticker]'), 'Running must restore the ticker immediately');
 
@@ -503,13 +504,11 @@ const inventoryDefaults = {
   'inventory.level2.minScore': 5, 'inventory.level2.maxAgeHours': 168,
 };
 
-test('inventory settings default legacy configs without writing unedited or hidden fields', async (t) => {
+test('inventory settings default missing fields without writing unedited or hidden fields', async (t) => {
   payload = basePayload();
   const legacy = structuredClone(DEFAULT_CONFIG);
   delete legacy.inventory;
   delete legacy.readAfterExposures;
-  delete legacy.enabled;
-  delete legacy.onlyWhenRunning;
   legacy.hiddenSetting = { keep: true };
   const { container, configuration, edit, status } = await mountSettings(t, legacy);
   for (const [key, value] of Object.entries(inventoryDefaults)) {
@@ -523,8 +522,6 @@ test('inventory settings default legacy configs without writing unedited or hidd
   assert.deepEqual(configuration.calls[0].ops, [{ op: 'set', path: ['minScore'], value: 8 }]);
   assert.deepEqual(configuration.getSnapshot().value.hiddenSetting, { keep: true });
   assert.equal(configuration.getSnapshot().value.inventory, undefined);
-  assert.equal(configuration.getSnapshot().value.enabled, undefined);
-  assert.equal(configuration.getSnapshot().value.onlyWhenRunning, undefined);
 });
 
 test('inventory settings mutate leaf paths only, preserve future fields and never change L0', async (t) => {

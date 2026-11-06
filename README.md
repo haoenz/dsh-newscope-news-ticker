@@ -32,7 +32,7 @@ pnpm run check
 
 ## Settings
 
-Open **Settings → Newscope News Ticker**, or use the package/row configuration on the installed Plugins page. Valid changes are saved automatically and applied immediately; there is no Save button. **Show news ticker** has three levels: **Off**, **While Agent is running**, and **Always**. Always additionally mounts the ticker above the composer while idle. Existing `enabled` and `onlyWhenRunning` configuration remains compatible.
+Open **Settings → Newscope News Ticker**, or use the package/row configuration on the installed Plugins page. Valid changes are saved automatically and applied immediately; there is no Save button. **Show news ticker** has three levels: **Off**, **While Agent is running**, and **Always**. Always additionally mounts the ticker above the composer while idle. The setting is stored as the single `displayMode` field; the former two boolean fields are intentionally removed during development.
 
 ## Data, pagination and boundaries
 

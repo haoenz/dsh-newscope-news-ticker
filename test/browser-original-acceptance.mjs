@@ -198,7 +198,7 @@ try {
   let state = await snapshot();
   assert.equal(state.version, 'ticker-original-acceptance');
   assert.equal(state.config.newscopeUrl, fixture);
-  assert.equal(state.config.onlyWhenRunning, false);
+  assert.equal(state.config.displayMode, 'always');
   assert.equal(state.config.translationEnabled, false);
   assert.equal(state.config.semanticDedupEnabled, false);
   assert.equal(state.config.readAfterExposures, 100);

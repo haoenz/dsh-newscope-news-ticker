@@ -128,7 +128,7 @@ QA_ORIGINAL_SERVER=1 pnpm run test:original:http
 
 它验证 130 条真实文章的 RSS＋3 页 HTML 补齐、分层/重播、新高分抢占、重新创建 Host 缓存后从磁盘恢复、远端 empty 不清本地、真正初始空库和禁抓源审计；所有磁盘状态在新建系统临时目录，最后恢复夹具 initial。
 
-再启动隔离 web-dev 3081：备份其可写 profile，关闭 HMR/自动标题模型，使用**新的独立 `XDG_DATA_HOME`**，设置 Newscope/管理地址为 8082、关闭翻译/语义去重、`onlyWhenRunning:false`、`readAfterExposures:100`、L0=7/48h、L1=6/72h、L2=5/168h、target=4、low=2、debounce=1秒。配置 `stage-e-local/stage-e-hold` 指向本地 8083，并启动[固定响应夹具](<../test/fixtures/stage-e-llm.mjs>)（`node test/fixtures/stage-e-llm.mjs`，无上游请求或工具调用）。它仅模拟模型协议返回固定文本，不调用真实模型；用于新 QA 会话完成首轮，让原生真实对话 composer 出现。把该 GUI 私有 auth URL 保存到权限 0600 的文件，用 `QA_URL_FILE` 传入，不打印或提交。
+再启动隔离 web-dev 3081：备份其可写 profile，关闭 HMR/自动标题模型，使用**新的独立 `XDG_DATA_HOME`**，设置 Newscope/管理地址为 8082、关闭翻译/语义去重、`displayMode:always`、`readAfterExposures:100`、L0=7/48h、L1=6/72h、L2=5/168h、target=4、low=2、debounce=1秒。配置 `stage-e-local/stage-e-hold` 指向本地 8083，并启动[固定响应夹具](<../test/fixtures/stage-e-llm.mjs>)（`node test/fixtures/stage-e-llm.mjs`，无上游请求或工具调用）。它仅模拟模型协议返回固定文本，不调用真实模型；用于新 QA 会话完成首轮，让原生真实对话 composer 出现。把该 GUI 私有 auth URL 保存到权限 0600 的文件，用 `QA_URL_FILE` 传入，不打印或提交。
 
 ```sh
 QA_HEADFUL=1 QA_URL_FILE="$PRIVATE_AUTH_FILE" pnpm run test:original:browser

@@ -110,7 +110,6 @@ window.__ModuleLoader__.load({
       .dsh-newscope-settings details[open] summary { margin-bottom:12px; }
       .dsh-newscope-settings-actions { display:flex; align-items:center; flex-wrap:wrap; gap:10px; padding-top:4px; }
       .dsh-newscope-settings-actions button { padding:7px 14px; border:1px solid var(--dsw-alias-border-l2); border-radius:6px; background:var(--dsw-alias-bg-layer-2); color:var(--dsw-alias-label-primary); cursor:pointer; font:inherit; }
-      .dsh-newscope-settings-actions button[data-newscope-save] { border-color:var(--dsw-alias-brand-primary); background:var(--dsw-alias-brand-primary); color:var(--dsw-alias-label-primary-foreground); }
       .dsh-newscope-settings-actions button:disabled { cursor:not-allowed; opacity:.5; }
       .dsh-newscope-settings-status { color:var(--dsw-alias-label-secondary); font-size:12px; }
       .dsh-newscope-settings-status[data-error=true] { color:var(--dsw-alias-text-danger,#d44); }
@@ -749,6 +748,7 @@ window.__ModuleLoader__.load({
 
     function settingsDraft(value = {}) {
       const draft = cloneJson(value) || {};
+      draft.displayMode = draft.enabled === false ? 'off' : draft.onlyWhenRunning === false ? 'always' : 'running';
       for (const [key, , , fallback] of INVENTORY_FIELDS) {
         const path = key.split('.');
         if (atPath(draft, path) === undefined) setPath(draft, path, fallback);
@@ -795,6 +795,9 @@ window.__ModuleLoader__.load({
       result.weights = {};
       for (const category of CATEGORIES) result.weights[category] = boundedNumber(draft.weights?.[category], 0, 1000);
       for (const key of ['topicMap', 'sourceMap']) result[key] = mappingValue(draft[key]);
+      if (!['off', 'running', 'always'].includes(result.displayMode)) throw new Error('Invalid display mode');
+      result.enabled = result.displayMode !== 'off';
+      result.onlyWhenRunning = result.displayMode === 'running';
       if (!['slow', 'medium', 'fast'].includes(result.scrollSpeed)) throw new Error('Invalid scroll speed');
       for (const key of ['newscopeUrl', 'managementUrl']) {
         if (!result[key]) continue;
@@ -809,13 +812,17 @@ window.__ModuleLoader__.load({
 
     function settingsOperations(saved, draft) {
       const normalized = normalizeSettings(draft);
+      const baseline = settingsDraft(saved);
+      if (normalized.displayMode === baseline.displayMode) {
+        normalized.enabled = saved?.enabled;
+        normalized.onlyWhenRunning = saved?.onlyWhenRunning;
+      }
       const operations = [];
       for (const key of CONFIG_KEYS) {
         const value = normalized[key];
         if (JSON.stringify(saved?.[key]) === JSON.stringify(value)) continue;
         operations.push(value === undefined ? { op: 'unset', path: [key] } : { op: 'set', path: [key], value });
       }
-      const baseline = settingsDraft(saved);
       for (const [key] of INVENTORY_FIELDS) {
         const path = key.split('.');
         const value = atPath(normalized, path);
@@ -967,9 +974,19 @@ window.__ModuleLoader__.load({
       const snapshot = React.useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
       const [draft, setDraft] = React.useState(() => settingsDraft(snapshot.value));
       const [dirty, setDirty] = React.useState(false);
-      const [editRevision, setEditRevision] = React.useState(snapshot.revision);
       const [saveState, setSaveState] = React.useState('idle');
+      const draftRef = React.useRef(draft);
+      const dirtyRef = React.useRef(false);
+      const editVersionRef = React.useRef(0);
+      const saveQueueRef = React.useRef(Promise.resolve());
+      const mountedRef = React.useRef(true);
+      const replaceDraft = (value) => { draftRef.current = value; setDraft(value); };
+      const updateDirty = (value) => { dirtyRef.current = value; setDirty(value); };
       const [catalog, setCatalog] = React.useState({ status: 'loading', options: [], defaultRoute: '' });
+      React.useEffect(() => {
+        mountedRef.current = true;
+        return () => { mountedRef.current = false; };
+      }, []);
       React.useEffect(() => {
         let active = true;
         Promise.resolve(loadModels()).then((value) => {
@@ -980,7 +997,7 @@ window.__ModuleLoader__.load({
         return () => { active = false; };
       }, [loadModels]);
       React.useEffect(() => {
-        if (!dirty) setDraft(settingsDraft(snapshot.value));
+        if (!dirtyRef.current) replaceDraft(settingsDraft(snapshot.value));
       }, [snapshot, dirty]);
 
       if (view === 'summary') return t('settings.summary');
@@ -989,16 +1006,47 @@ window.__ModuleLoader__.load({
         return h('p', { className: 'dsh-newscope-settings-note' }, t('settings.unavailable'));
       }
 
-      const disabled = !snapshot.writable || saveState === 'saving';
-      const edit = (path, value) => {
-        if (!dirty) setEditRevision(snapshot.revision);
-        setDraft((current) => {
-          const next = { ...current };
-          setPath(next, path, value);
-          return next;
+      const disabled = !snapshot.writable;
+      const persist = (nextDraft) => {
+        const version = ++editVersionRef.current;
+        saveQueueRef.current = saveQueueRef.current.catch(() => {}).then(async () => {
+          if (version !== editVersionRef.current) return;
+          const currentSnapshot = configuration.getSnapshot();
+          let operations;
+          try { operations = settingsOperations(currentSnapshot.value, nextDraft); }
+          catch {
+            if (version === editVersionRef.current && mountedRef.current) setSaveState('invalid');
+            return;
+          }
+          if (!operations.length) {
+            if (version === editVersionRef.current && mountedRef.current) {
+              updateDirty(false);
+              setSaveState('saved');
+            }
+            return;
+          }
+          if (mountedRef.current) setSaveState('saving');
+          try {
+            const accepted = await configuration.mutate(operations, currentSnapshot.revision);
+            if (version !== editVersionRef.current || !mountedRef.current) return;
+            setSaveState(accepted ? 'saved' : 'error');
+            if (accepted) updateDirty(false);
+          } catch {
+            if (version === editVersionRef.current && mountedRef.current) setSaveState('error');
+          }
         });
-        setDirty(true);
+      };
+      const edit = (path, value) => {
+        const next = { ...draftRef.current };
+        setPath(next, path, value);
+        if (path.length === 1 && path[0] === 'displayMode') {
+          next.enabled = value !== 'off';
+          next.onlyWhenRunning = value === 'running';
+        }
+        replaceDraft(next);
+        updateDirty(true);
         setSaveState('idle');
+        persist(next);
       };
       const input = (path, label, type = 'text', hint) => {
         const key = Array.isArray(path) ? path : [path];
@@ -1035,24 +1083,6 @@ window.__ModuleLoader__.load({
         h('option', { value: '' }, blankLabel),
         ...options.map((option) => h('option', { key: option.value, value: option.value }, option.label))));
       };
-      const save = async () => {
-        let operations;
-        try { operations = settingsOperations(snapshot.value, draft); }
-        catch { setSaveState('invalid'); return; }
-        if (!operations.length) { setDirty(false); setSaveState('saved'); return; }
-        setSaveState('saving');
-        try {
-          const accepted = await configuration.mutate(operations, editRevision);
-          setSaveState(accepted ? 'saved' : 'error');
-          if (accepted) setDirty(false);
-        } catch { setSaveState('error'); }
-      };
-      const discard = () => {
-        setDraft(settingsDraft(snapshot.value));
-        setEditRevision(snapshot.revision);
-        setDirty(false);
-        setSaveState('idle');
-      };
       const statusText = saveState === 'saving' ? t('settings.saving')
         : saveState === 'saved' ? t('settings.saved')
           : saveState === 'invalid' ? t('settings.invalid')
@@ -1066,8 +1096,7 @@ window.__ModuleLoader__.load({
             input('managementUrl', t('settings.managementUrl'), 'text', t('settings.managementUrlHint')),
             input('minScore', t('settings.minScore'), 'number'),
             input('maxAgeHours', t('settings.maxAgeHours'), 'number'),
-            input('refreshMinutes', t('settings.refreshMinutes'), 'number'),
-            toggle('enabled', t('settings.enabled')))),
+            input('refreshMinutes', t('settings.refreshMinutes'), 'number'))),
         h(InventoryStatus, { t }),
         h('section', { 'data-newscope-inventory-settings': true }, h('h4', null, t('settings.inventory')),
           h('p', { className: 'dsh-newscope-settings-note' }, t('settings.inventoryHint')),
@@ -1076,11 +1105,17 @@ window.__ModuleLoader__.load({
               key === 'readAfterExposures' ? t('settings.readAfterExposuresHint') : undefined)))),
         h('section', null, h('h4', null, t('settings.display')),
           h('div', { className: 'dsh-newscope-settings-grid' },
+            h(SettingsField, { label: t('settings.displayMode'), hint: t('settings.displayModeHint'), wide: true },
+              h('select', {
+                value: draft.displayMode || 'running', disabled, 'data-setting': 'displayMode',
+                onChange: (event) => edit(['displayMode'], event.target.value),
+              },
+                ...['off', 'running', 'always'].map((mode) =>
+                  h('option', { key: mode, value: mode }, t(`settings.mode.${mode}`))))),
             h(SettingsField, { label: t('settings.scrollSpeed') }, h('select', {
               value: draft.scrollSpeed || 'medium', disabled, 'data-setting': 'scrollSpeed',
               onChange: (event) => edit(['scrollSpeed'], event.target.value),
             }, ...['slow', 'medium', 'fast'].map((speed) => h('option', { key: speed, value: speed }, t(`settings.speed.${speed}`))))),
-            toggle('onlyWhenRunning', t('settings.onlyWhenRunning'), t('settings.onlyWhenRunningHint')),
             toggle('pauseOnHover', t('settings.pauseOnHover')),
             toggle('openInNewTab', t('settings.openInNewTab')))),
         h('section', null, h('h4', null, t('settings.weights')),
@@ -1098,14 +1133,10 @@ window.__ModuleLoader__.load({
           h('div', { className: 'dsh-newscope-settings-grid' },
             mapping('topicMap', t('settings.topicMap'), t('settings.mappingHint')),
             mapping('sourceMap', t('settings.sourceMap'), t('settings.mappingHint')))),
-        h('div', { className: 'dsh-newscope-settings-actions' },
-          h('button', { type: 'button', 'data-newscope-save': true, disabled: disabled || !dirty, onClick: save },
-            saveState === 'saving' ? t('settings.saving') : t('settings.save')),
-          h('button', { type: 'button', disabled: disabled || !dirty, onClick: discard }, t('settings.discard')),
-          statusText ? h('span', {
-            className: 'dsh-newscope-settings-status', role: 'status',
-            'data-error': ['invalid', 'error'].includes(saveState) || undefined,
-          }, statusText) : null));
+        h('div', { className: 'dsh-newscope-settings-actions' }, h('span', {
+          className: 'dsh-newscope-settings-status', role: 'status',
+          'data-error': ['invalid', 'error'].includes(saveState) || undefined,
+        }, statusText || t('settings.autoSave'))));
     }
 
     return {
@@ -1144,7 +1175,7 @@ window.__ModuleLoader__.load({
                   newscopeUrl: 'Newscope Host URL', newscopeUrlHint: 'The DSH Host queries existing articles at this address; it never triggers source fetching.',
                   managementUrl: 'Browser management URL', managementUrlHint: 'Optional browser-reachable address; blank uses the Host URL.',
                   minScore: 'Minimum score (0–10)', maxAgeHours: 'Maximum article age (hours)',
-                  refreshMinutes: 'Refresh interval (minutes)', enabled: 'Enable the news ticker',
+                  refreshMinutes: 'Refresh interval (minutes)',
                   inventory: 'Read state and inventory', readAfterExposures: 'Qualified exposures before read (1–100)',
                   readAfterExposuresHint: 'Default: 3. Counts qualified visible opportunities, not proof that the article was read.',
                   'inventory.targetInventory': 'Target inventory (1–100)', 'inventory.lowWatermark': 'Low watermark (0–target)',
@@ -1153,8 +1184,9 @@ window.__ModuleLoader__.load({
                   'inventory.level2.minScore': 'L2 minimum score (0–10)', 'inventory.level2.maxAgeHours': 'L2 maximum age (1–720 hours)',
                   inventoryHint: 'Only queries existing inventory; never fetches source feeds. Within the reported inventory scope, a tier must exhaust its unread items before relaxing to the next. Known-local inventory cannot prove remote exhaustion. These are configured thresholds, not the current effective filters, and never permanently change L0. Defaults: target 30, low watermark 10, debounce 30 seconds; L1 6 / 72 hours, L2 5 / 168 hours.',
                   display: 'Display', scrollSpeed: 'Scroll speed',
+                  displayMode: 'Show news ticker', displayModeHint: 'Off hides it everywhere. While running uses the Agent status row. Always also shows it above the composer while idle.',
+                  mode: { off: 'Off', running: 'While Agent is running', always: 'Always' },
                   speed: { slow: 'Slow', medium: 'Medium', fast: 'Fast' },
-                  onlyWhenRunning: 'Only while Agent is running', onlyWhenRunningHint: 'When off, an idle ticker appears above the composer.',
                   pauseOnHover: 'Pause on hover or keyboard focus', openInNewTab: 'Open articles in a new tab',
                   weights: 'Category exposure weights',
                   weightsHint: 'Relative weights; they do not need to total 100.', ai: 'AI features',
@@ -1167,9 +1199,10 @@ window.__ModuleLoader__.load({
                   semanticModelHint: 'Blank reuses the translation model; choose any model from the DSH catalog to override it.', advanced: 'Advanced topic and source mappings',
                   topicMap: 'Topic mapping (JSON)', sourceMap: 'Source mapping (JSON)',
                   mappingHint: 'Each category must contain an array of case-insensitive fragments.',
-                  save: 'Save changes', saving: 'Saving…', saved: 'Saved', discard: 'Discard changes',
-                  invalid: 'Check URLs, numeric ranges, integer counts, low watermark ≤ target, and mapping JSON.',
-                  error: 'Save failed. The configuration may have changed elsewhere; review or discard your edits.',
+                  autoSave: 'Valid changes are saved automatically and take effect immediately; no Save button is needed.',
+                  saving: 'Saving…', saved: 'Automatically saved',
+                  invalid: 'This edit is not active yet. Check URLs, numeric ranges, integer counts, low watermark ≤ target, and mapping JSON.',
+                  error: 'Automatic save failed. The configuration may have changed elsewhere; continue editing to retry.',
                 },
               },
               zh: {
@@ -1202,7 +1235,7 @@ window.__ModuleLoader__.load({
                   newscopeUrl: 'Newscope Host 地址', newscopeUrlHint: 'DSH Host 从该地址查询已入库文章，不触发源站抓取。',
                   managementUrl: '浏览器管理地址', managementUrlHint: '可选的浏览器可访问地址；留空则使用 Host 地址。',
                   minScore: '最低评分（0–10）', maxAgeHours: '新闻最大年龄（小时）',
-                  refreshMinutes: '刷新间隔（分钟）', enabled: '启用新闻跑马灯',
+                  refreshMinutes: '刷新间隔（分钟）',
                   inventory: '已读与库存', readAfterExposures: '已读所需有效曝光次数（1–100）',
                   readAfterExposuresHint: '默认 3 次。统计真实可见机会，不代表用户已实际阅读。',
                   'inventory.targetInventory': '目标库存（1–100）', 'inventory.lowWatermark': '低水位（0–目标库存）',
@@ -1211,8 +1244,9 @@ window.__ModuleLoader__.load({
                   'inventory.level2.minScore': 'L2 最低评分（0–10）', 'inventory.level2.maxAgeHours': 'L2 最大时效（1–720 小时）',
                   inventoryHint: '仅查询已有库存，不抓取源站。在所报告的库存范围内，当前档位未读耗尽才放宽到下一档；已知本地库存无法证明远端耗尽。这些值是配置阈值，不是当前实际生效条件，也不会永久修改 L0。默认目标 30、低水位 10、防抖 30 秒；L1 为 6 分 / 72 小时，L2 为 5 分 / 168 小时。',
                   display: '展示', scrollSpeed: '滚动速度',
+                  displayMode: '讯息滚动显示', displayModeHint: '关闭时完全不显示；运行时显示仅使用 Agent 状态行；总是显示还会在空闲时显示于输入框上方。',
+                  mode: { off: '关闭', running: '运行时显示', always: '总是显示' },
                   speed: { slow: '慢', medium: '中', fast: '快' },
-                  onlyWhenRunning: '仅在 Agent 运行时显示', onlyWhenRunningHint: '关闭后，空闲时也会在输入框上方显示一行新闻。',
                   pauseOnHover: '悬停或键盘聚焦时暂停', openInNewTab: '在新标签页打开原文',
                   weights: '分类曝光权重',
                   weightsHint: '使用相对权重，不要求总和为 100。', ai: 'AI 功能',
@@ -1225,9 +1259,10 @@ window.__ModuleLoader__.load({
                   semanticModelHint: '留空时沿用翻译模型，也可从 DSH 模型目录中单独选择。', advanced: '高级主题与来源映射',
                   topicMap: '主题映射（JSON）', sourceMap: '来源映射（JSON）',
                   mappingHint: '每个分类都必须是不区分大小写的片段字符串数组。',
-                  save: '保存修改', saving: '正在保存…', saved: '已保存', discard: '放弃修改',
-                  invalid: '请检查 URL、数值范围、整数计数、低水位不大于目标库存，以及映射 JSON。',
-                  error: '保存失败。配置可能已在别处变更，请检查或放弃当前修改。',
+                  autoSave: '有效修改会自动保存并立即生效，无需点击保存。',
+                  saving: '正在自动保存…', saved: '已自动保存',
+                  invalid: '本次修改尚未生效。请检查 URL、数值范围、整数计数、低水位不大于目标库存，以及映射 JSON。',
+                  error: '自动保存失败。配置可能已在别处变更，请继续编辑以重试。',
                 },
               },
             }));
@@ -1373,8 +1408,10 @@ window.__ModuleLoader__.load({
               const inventoryLabel = t('ariaLabel') + ' · ' + t('inventoryStatus.tier') + ': ' + status.tier
                 + ' · ' + t('inventoryStatus.unreadCount') + ': ' + status.unreadCount + ' · ' + status.effective
                 + ' · ' + t('inventoryStatus.inventoryScope') + ': ' + status.inventoryScope;
-              latest = { items: projected.items, config: payload.config, inventoryLabel };
-              const minutes = Math.max(1, Math.min(1440, Number(payload.config.refreshMinutes) || 5));
+              const configured = configuration.getSnapshot().value;
+              const config = configured && typeof configured === 'object' ? { ...payload.config, ...configured } : payload.config;
+              latest = { items: projected.items, config, inventoryLabel };
+              const minutes = Math.max(1, Math.min(1440, Number(config.refreshMinutes) || 5));
               if (currentRefreshMs !== minutes * 60000) { currentRefreshMs = minutes * 60000; armRefresh(); }
             } catch (error) {
               // Keep the last good browser snapshot. An initial failure leaves no items,
@@ -1400,6 +1437,15 @@ window.__ModuleLoader__.load({
         }
 
         ctx.effect(() => {
+          const unsubscribeConfiguration = configuration.subscribe(() => {
+            if (disposed) return;
+            const configured = configuration.getSnapshot().value;
+            if (!configured || typeof configured !== 'object') return;
+            latest = { ...latest, config: { ...latest.config, ...configured } };
+            refillRequested = true;
+            sync();
+            if (!refreshing) void refresh();
+          });
           observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
           document.addEventListener('visibilitychange', visibility);
           window.addEventListener('pagehide', onPageHide);
@@ -1407,6 +1453,7 @@ window.__ModuleLoader__.load({
           armRefresh();
           return () => {
             disposed = true;
+            unsubscribeConfiguration();
             observer.disconnect();
             document.removeEventListener('visibilitychange', visibility);
             window.removeEventListener('pagehide', onPageHide);

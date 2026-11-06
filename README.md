@@ -30,6 +30,10 @@ pnpm test
 pnpm run check
 ```
 
+## Settings
+
+Open **Settings → Newscope News Ticker**, or use the package/row configuration on the installed Plugins page. Valid changes are saved automatically and applied immediately; there is no Save button. **Show news ticker** has three levels: **Off**, **While Agent is running**, and **Always**. Always additionally mounts the ticker above the composer while idle. Existing `enabled` and `onlyWhenRunning` configuration remains compatible.
+
 ## Data, pagination and boundaries
 
 - **Original Newscope is supported without deploying a fork or the new JSON API.** The compatibility path uses RSS plus a persistent candidate inventory, with on-demand read-only HTML pagination. All paths query articles already stored/scored by Newscope; none triggers source fetching, changes its scheduler/feed configuration/scoring pipeline, or directly opens its SQLite database.
@@ -88,7 +92,7 @@ Snapshot status includes `pool.tier` (L0/L1/L2/L2+replay/replay/empty), `pool.ef
 
 ## Existing presentation and optional LLM features
 
-Continuous title-only scrolling, original links, hover/keyboard-focus pause, light/dark and narrow layouts, and playback anchoring across running-row replacement and same-tab refresh remain available. `onlyWhenRunning=false` enables an idle composer dock; the ticker deliberately keeps scrolling regardless of the OS reduced-motion preference. Four-category exposure weights and configurable `topicMap`/`sourceMap` remain supported; a category shortage redistributes its allocation. `managementUrl` can provide a browser-reachable Newscope management address when the Host URL is loopback.
+Continuous title-only scrolling, original links, hover/keyboard-focus pause, light/dark and narrow layouts, and playback anchoring across running-row replacement and same-tab refresh remain available. The three-level display setting controls off/running-only/always visibility; the ticker deliberately keeps scrolling regardless of the OS reduced-motion preference. Four-category exposure weights and configurable `topicMap`/`sourceMap` remain supported; a category shortage redistributes its allocation. `managementUrl` can provide a browser-reachable Newscope management address when the Host URL is loopback.
 
 Optional `semanticDedupEnabled`/`semanticDedupModel` conservatively remove cross-source reports of the same specific event after local URL/GUID/title deduplication and before translation. Distinct events, opinions and material follow-ups should remain separate. The model returns groups; the existing highest-ranked representative is retained. Candidate/model caching, 100 candidates, 300 title characters and a 60-second request bound limit work; model failure falls back to local deduplication.
 

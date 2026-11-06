@@ -179,20 +179,23 @@ test('client module registers and preserves the native running label', async () 
   assert.equal(link.title, 'Title a');
 });
 
-test('onlyWhenRunning=false shows the ticker above the composer dock while idle', async () => {
+test('always display mode immediately mounts and removes the idle composer ticker', async () => {
   document.body.innerHTML = '<div data-slot="conversation.composer.dock"><span>composer</span></div>';
   payload = basePayload();
-  await start({ running: false });
+  const configuration = createConfiguration();
+  await start({ running: false, configuration });
   assert.equal(document.querySelector('[data-newscope-ticker]'), null);
 
-  payload = { ...basePayload(), config: { ...basePayload().config, onlyWhenRunning: false } };
-  document.dispatchEvent(new window.Event('visibilitychange'));
+  await configuration.mutate([{ op: 'set', path: ['onlyWhenRunning'], value: false }], 7);
   await flush();
   const dock = document.querySelector('[data-slot="conversation.composer.dock"]');
   const ticker = dock.querySelector('[data-newscope-ticker]');
-  assert.ok(ticker);
+  assert.ok(ticker, 'Always must show above the composer without waiting for a manual refresh');
   assert.equal(dock.firstElementChild, ticker);
   assert.ok(ticker.hasAttribute('data-newscope-idle'));
+
+  await configuration.mutate([{ op: 'set', path: ['enabled'], value: false }], 8);
+  assert.equal(document.querySelector('[data-newscope-ticker]'), null, 'Off must remove the idle ticker immediately');
 });
 
 test('translated Chinese title is shown without leaking the original English title', async () => {
@@ -309,11 +312,11 @@ test('initial outage leaves native UI alone; later failure uses last browser sna
 });
 
 test('disabled config, session replacement and teardown restore the original status row', async () => {
-  payload = { ...basePayload(), config: { ...basePayload().config, enabled: false } };
-  await start();
-  assert.equal(document.querySelector('[data-newscope-ticker]'), null);
   payload = basePayload();
-  document.dispatchEvent(new window.Event('visibilitychange'));
+  const configuration = createConfiguration({ ...DEFAULT_CONFIG, enabled: false });
+  await start({ configuration });
+  assert.equal(document.querySelector('[data-newscope-ticker]'), null);
+  await configuration.mutate([{ op: 'set', path: ['enabled'], value: true }], 7);
   await flush();
   const oldRow = document.querySelector('[data-chat-running]');
   assert.ok(oldRow.querySelector('[data-newscope-ticker]'));
@@ -338,7 +341,7 @@ test('system reduced motion is always ignored so the ticker still scrolls', asyn
   assert.match(document.querySelector('[data-newscope-track]').style.transform, /-0\.72px/);
 });
 
-test('native bundle and row settings render and write changed fields through configForms', async (t) => {
+test('native settings expose three display modes and automatically save every valid edit', async (t) => {
   payload = basePayload();
   const configuration = createConfiguration();
   const { ctx, registrations } = await start({ configuration });
@@ -372,34 +375,57 @@ test('native bundle and row settings render and write changed fields through con
   assert.ok(container.textContent.includes('Newscope Host 地址'));
   assert.equal(container.textContent.includes('settings.newscopeUrl'), false, 'internal locale keys must never reach the visible form');
   assert.ok(container.querySelector('[data-setting="newscopeUrl"]'));
+  assert.equal(container.querySelector('[data-newscope-save]'), null, 'automatic settings must not need a Save button');
+  assert.ok(container.textContent.includes('无需点击保存'));
   const translationSelect = container.querySelector('select[data-setting="translationModel"]');
   assert.ok(translationSelect, 'translation model should be a catalog select, not a text input');
   assert.ok(translationSelect.textContent.includes('DeepSeek Flash · KT'));
   assert.ok(translationSelect.textContent.includes('跟随 DSH 默认模型（kt/deepseek-flash）'));
-  assert.equal(container.querySelector('[data-newscope-save]').disabled, true);
+  const displaySelect = container.querySelector('select[data-setting="displayMode"]');
+  assert.equal(displaySelect.value, 'running');
+  assert.deepEqual([...displaySelect.options].map((option) => [option.value, option.textContent]), [
+    ['off', '关闭'], ['running', '运行时显示'], ['always', '总是显示'],
+  ]);
+  assert.ok(document.querySelector('[data-newscope-ticker]'));
 
   const translationToggle = container.querySelector('[data-setting="translationEnabled"]');
   await act(async () => { translationToggle.click(); });
   assert.equal(translationToggle.checked, true);
-  const saveButton = container.querySelector('[data-newscope-save]');
-  assert.equal(saveButton.disabled, false);
-  await act(async () => { saveButton.click(); });
   assert.deepEqual(configuration.calls, [{
     ops: [{ op: 'set', path: ['translationEnabled'], value: true }],
     expectedRevision: 7,
   }]);
   assert.equal(configuration.getSnapshot().value.translationEnabled, true);
-  assert.ok(container.textContent.includes('已保存'));
+  assert.ok(container.textContent.includes('已自动保存'));
 
   await act(async () => {
     translationSelect.value = 'kt/deepseek-flash';
     Simulate.change(translationSelect, { target: { value: 'kt/deepseek-flash' } });
   });
-  await act(async () => { saveButton.click(); });
   assert.deepEqual(configuration.calls[1], {
     ops: [{ op: 'set', path: ['translationModel'], value: 'kt/deepseek-flash' }],
     expectedRevision: 8,
   });
+
+  const changeDisplay = async (value) => {
+    await act(async () => { Simulate.change(displaySelect, { target: { value } }); });
+  };
+  await changeDisplay('always');
+  assert.deepEqual(configuration.calls[2], {
+    ops: [{ op: 'set', path: ['onlyWhenRunning'], value: false }], expectedRevision: 9,
+  });
+  assert.ok(document.querySelector('[data-newscope-ticker]'));
+  await changeDisplay('off');
+  assert.deepEqual(configuration.calls[3], {
+    ops: [{ op: 'set', path: ['enabled'], value: false }], expectedRevision: 10,
+  });
+  assert.equal(document.querySelector('[data-newscope-ticker]'), null, 'Off must detach the visible ticker immediately');
+  await changeDisplay('running');
+  assert.deepEqual(configuration.calls[4], {
+    ops: [{ op: 'set', path: ['enabled'], value: true }, { op: 'set', path: ['onlyWhenRunning'], value: true }],
+    expectedRevision: 11,
+  });
+  assert.ok(document.querySelector('[data-newscope-ticker]'), 'Running must restore the ticker immediately');
 
   const scoreInput = container.querySelector('[data-setting="minScore"]');
   await act(async () => {
@@ -407,10 +433,33 @@ test('native bundle and row settings render and write changed fields through con
     Simulate.change(scoreInput, { target: { value: '11' } });
   });
   assert.equal(scoreInput.value, '11');
-  assert.equal(saveButton.disabled, false, 'numeric edit should stage a change');
-  await act(async () => { saveButton.click(); });
-  assert.equal(configuration.calls.length, 2, 'invalid values must not reach the Host');
-  assert.ok(container.textContent.includes('低水位不大于目标库存'));
+  assert.equal(configuration.calls.length, 5, 'invalid values must not reach the Host');
+  assert.ok(container.textContent.includes('本次修改尚未生效'));
+});
+
+test('automatic settings serialize rapid edits and use each newly accepted revision', async (t) => {
+  payload = basePayload();
+  const { configuration, edit } = await mountSettings(t);
+  const mutate = configuration.mutate.bind(configuration);
+  let releaseFirst;
+  let first = true;
+  configuration.mutate = async (ops, expectedRevision) => {
+    if (first) {
+      first = false;
+      await new Promise((resolve) => { releaseFirst = resolve; });
+    }
+    return mutate(ops, expectedRevision);
+  };
+
+  await edit('scrollSpeed', 'fast');
+  await edit('scrollSpeed', 'slow');
+  assert.equal(configuration.calls.length, 0, 'the first write is deliberately held open');
+  await act(async () => { releaseFirst(); await flush(); });
+  assert.deepEqual(configuration.calls, [
+    { ops: [{ op: 'set', path: ['scrollSpeed'], value: 'fast' }], expectedRevision: 7 },
+    { ops: [{ op: 'set', path: ['scrollSpeed'], value: 'slow' }], expectedRevision: 8 },
+  ]);
+  assert.equal(configuration.getSnapshot().value.scrollSpeed, 'slow');
 });
 
 async function mountSettings(t, initial = DEFAULT_CONFIG, locale = 'zh') {
@@ -436,10 +485,9 @@ async function mountSettings(t, initial = DEFAULT_CONFIG, locale = 'zh') {
     assert.ok(input, key);
     await act(async () => { Simulate.change(input, { target: { value: String(value) } }); });
   };
-  const save = async () => { await act(async () => container.querySelector('[data-newscope-save]').click()); };
   const refresh = async () => { await act(async () => container.querySelector('[data-newscope-refresh-status]').click()); };
   const status = (key) => container.querySelector('[data-newscope-status="' + key + '"]')?.textContent;
-  return { configuration, container, edit, save, refresh, status, unmount };
+  return { configuration, container, edit, refresh, status, unmount };
 }
 
 const inventoryPayload = (tier = 'L0') => ({
@@ -460,8 +508,10 @@ test('inventory settings default legacy configs without writing unedited or hidd
   const legacy = structuredClone(DEFAULT_CONFIG);
   delete legacy.inventory;
   delete legacy.readAfterExposures;
+  delete legacy.enabled;
+  delete legacy.onlyWhenRunning;
   legacy.hiddenSetting = { keep: true };
-  const { container, configuration, edit, save, status } = await mountSettings(t, legacy);
+  const { container, configuration, edit, status } = await mountSettings(t, legacy);
   for (const [key, value] of Object.entries(inventoryDefaults)) {
     assert.equal(container.querySelector('[data-setting="' + key + '"]').value, String(value));
   }
@@ -470,10 +520,11 @@ test('inventory settings default legacy configs without writing unedited or hidd
   assert.match(status('effective'), /未知/);
   assert.match(status('capabilities'), /未知/);
   await edit('minScore', 8);
-  await save();
   assert.deepEqual(configuration.calls[0].ops, [{ op: 'set', path: ['minScore'], value: 8 }]);
   assert.deepEqual(configuration.getSnapshot().value.hiddenSetting, { keep: true });
   assert.equal(configuration.getSnapshot().value.inventory, undefined);
+  assert.equal(configuration.getSnapshot().value.enabled, undefined);
+  assert.equal(configuration.getSnapshot().value.onlyWhenRunning, undefined);
 });
 
 test('inventory settings mutate leaf paths only, preserve future fields and never change L0', async (t) => {
@@ -482,14 +533,13 @@ test('inventory settings mutate leaf paths only, preserve future fields and neve
   initial.hiddenSetting = 'keep';
   initial.inventory.futurePolicy = { keep: true };
   initial.inventory.level1.futureThreshold = 42;
-  const { configuration, edit, save, container } = await mountSettings(t, initial);
+  const { configuration, edit, container } = await mountSettings(t, initial);
   const changes = { readAfterExposures: 100, 'inventory.targetInventory': 100, 'inventory.lowWatermark': 0,
     'inventory.refillDebounceSeconds': 3600, 'inventory.level1.minScore': 0, 'inventory.level1.maxAgeHours': 720,
     'inventory.level2.minScore': 10, 'inventory.level2.maxAgeHours': 1 };
   for (const [key, value] of Object.entries(changes)) await edit(key, value);
-  await save();
-  assert.equal(configuration.calls.length, 1);
-  assert.deepEqual(configuration.calls[0].ops, Object.entries(changes).map(([key, value]) => ({ op: 'set', path: key.split('.'), value })));
+  assert.equal(configuration.calls.length, Object.entries(changes).length, 'each valid edit should save immediately');
+  assert.deepEqual(configuration.calls.map((call) => call.ops), Object.entries(changes).map(([key, value]) => [{ op: 'set', path: key.split('.'), value }]));
   const result = configuration.getSnapshot().value;
   assert.equal(result.minScore, 7);
   assert.equal(result.maxAgeHours, 48);
@@ -503,7 +553,7 @@ test('inventory settings mutate leaf paths only, preserve future fields and neve
 
 test('inventory settings reject invalid ranges, empty values, fractional counts and low above target', async (t) => {
   payload = basePayload();
-  const { configuration, edit, save, container } = await mountSettings(t);
+  const { configuration, edit, container } = await mountSettings(t);
   const invalid = [
     ['readAfterExposures', 0], ['readAfterExposures', 101], ['readAfterExposures', 1.5], ['readAfterExposures', ''],
     ['inventory.targetInventory', 0], ['inventory.targetInventory', 101], ['inventory.targetInventory', 1.5],
@@ -516,7 +566,6 @@ test('inventory settings reject invalid ranges, empty values, fractional counts 
   ];
   for (const [key, value] of invalid) {
     await edit(key, value);
-    await save();
     assert.equal(configuration.calls.length, 0, key + '=' + value);
     assert.match(container.textContent, /低水位不大于目标库存/);
     await edit(key, inventoryDefaults[key]);
@@ -526,8 +575,11 @@ test('inventory settings reject invalid ranges, empty values, fractional counts 
   await edit('readAfterExposures', 1);
   await edit('inventory.refillDebounceSeconds', 1);
   await edit('inventory.level1.minScore', 6.5);
-  await save();
-  assert.equal(configuration.calls.length, 1, 'inclusive lower bounds and fractional scores are valid');
+  assert.equal(configuration.calls.length, 4, 'valid cross-field edits and fractional scores should save automatically');
+  assert.deepEqual(configuration.calls[0].ops, [
+    { op: 'set', path: ['inventory', 'targetInventory'], value: 1 },
+    { op: 'set', path: ['inventory', 'lowWatermark'], value: 1 },
+  ]);
 });
 
 test('inventory status reflects tiers, true zero, replay, stale and capability warnings through same-origin GET', async (t) => {

@@ -6,6 +6,7 @@ import { articleKeyFor } from '../lib/article-identity.js';
 import { CandidateStore } from '../lib/candidate-store.js';
 import { resolveConfig } from '../lib/config.js';
 import { normalizeFeedbackRequest, submitNewscopeFeedback } from '../lib/feedback.js';
+import { ReadStateStore } from '../lib/read-state.js';
 
 const SOURCE = 'https://newscope.test/base/';
 const config = resolveConfig({ newscopeUrl: SOURCE });
@@ -41,15 +42,17 @@ function response() {
   };
 }
 
-function feedbackRoute(candidateStore, fetch) {
+function feedbackRoute(candidateStore, fetch, readState = new ReadStateStore({ file: null })) {
   const registrations = [];
   const ctx = {
     llm: {}, agentDefaultModel: { currentSelection: () => ({}) },
     effect(fn) { return fn(); },
     webServer: { register(options) { registrations.push(options); return () => {}; } },
   };
-  apply(ctx, { newscopeUrl: SOURCE }, { candidateStore, fetch });
-  return registrations.find((entry) => entry.path === FEEDBACK_ROUTE);
+  apply(ctx, { newscopeUrl: SOURCE }, { candidateStore, fetch, readState });
+  const route = registrations.find((entry) => entry.path === FEEDBACK_ROUTE);
+  route.readState = readState;
+  return route;
 }
 
 test('feedback resolves stable identity, avoids same-action duplicates and persists changes', async () => {
@@ -140,6 +143,61 @@ test('feedback route enforces same-origin JSON and bounded validated input', asy
     assert.equal(res.status, status);
   }
   assert.equal(calls, 0);
+});
+
+
+test('feedback route persists manual read immediately with zero exposures and stable duplicate IDs', async () => {
+  const candidateStore = await storeWith();
+  const readState = new ReadStateStore({ file: null });
+  let calls = 0;
+  const route = feedbackRoute(candidateStore, async () => { calls++; return accepted(); }, readState);
+  const body = JSON.stringify({ articleKey: keyFor(), action: 'like' });
+  let res = response();
+  await route.handler(request(body), res);
+  let payload = JSON.parse(res.body);
+  assert.equal(res.status, 200);
+  assert.equal(payload.readPersisted, true);
+  assert.equal(payload.readVersion, 1);
+  assert.deepEqual(payload.exposureStates[keyFor()], {
+    read: true, readAt: payload.exposureStates[keyFor()].readAt, exposureCount: 0, readReason: 'manual', lastShownAt: null,
+  });
+  assert.ok(payload.exposureStates[keyFor()].readAt);
+
+  res = response();
+  await route.handler(request(body), res);
+  payload = JSON.parse(res.body);
+  assert.equal(payload.duplicate, true);
+  assert.equal(payload.readVersion, 1, 'same feedback event remains idempotent');
+  assert.equal(calls, 1);
+
+  res = response();
+  await route.handler(request(JSON.stringify({ articleKey: keyFor(), action: 'dislike' })), res);
+  payload = JSON.parse(res.body);
+  assert.equal(payload.readVersion, 2);
+  assert.equal(payload.exposureStates[keyFor()].read, true);
+  assert.equal(payload.exposureStates[keyFor()].exposureCount, 0);
+  assert.equal(payload.exposureStates[keyFor()].readReason, 'manual');
+  assert.equal(calls, 2);
+});
+
+test('failed upstream or read-state persistence never fabricates a confirmed read', async () => {
+  const candidateStore = await storeWith();
+  const readState = new ReadStateStore({ file: null });
+  const failedRoute = feedbackRoute(candidateStore, async () => new Response('no', { status: 500 }), readState);
+  let res = response();
+  await failedRoute.handler(request(JSON.stringify({ articleKey: keyFor(), action: 'like' })), res);
+  assert.equal(res.status, 502);
+  assert.equal(JSON.parse(res.body).readPersisted, undefined);
+
+  const acceptedRoute = feedbackRoute(candidateStore, async () => accepted(), readState);
+  readState.recordEvents = async () => { throw new Error('read state unavailable'); };
+  res = response();
+  await acceptedRoute.handler(request(JSON.stringify({ articleKey: keyFor(), action: 'like' })), res);
+  const payload = JSON.parse(res.body);
+  assert.equal(res.status, 200);
+  assert.equal(payload.ok, true);
+  assert.equal(payload.readPersisted, false);
+  assert.equal(payload.exposureStates, undefined);
 });
 
 test('feedback route serializes concurrent duplicate clicks and never exposes upstream HTML', async () => {

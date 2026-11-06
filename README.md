@@ -36,7 +36,7 @@ Open **Settings → Newscope News Ticker**, or use the package/row configuration
 
 ### Newscope feedback
 
-Hover or keyboard-focus an article to reveal 👍 / 👎; controls remain visible on touch devices. A same-origin Host route resolves `articleKey` to the candidate's numeric `newscopeId` and calls the original `POST /api/v1/feedback/{id}/like|dislike` endpoint. RSS-only articles without a resolved ID expose disabled controls with an explanation. Newscope's native feedback updates score and preferences. Current/pending actions are disabled, concurrent identical operations share one upstream write, and successful state is retained in candidate metadata or read from original HTML active states. No source feed fetch is triggered.
+Hover or keyboard-focus an article to reveal 👍 / 👎; controls remain visible on touch devices. A same-origin Host route resolves `articleKey` to the candidate's numeric `newscopeId` and calls the original `POST /api/v1/feedback/{id}/like|dislike` endpoint. RSS-only articles without a resolved ID expose disabled controls with an explanation. Newscope's native feedback updates score and preferences. Successful feedback also persists a `manual` read on the Host with zero required exposures; the client retires it only after validating the read acknowledgement. Failed feedback or read-state persistence never fabricates a read. Current/pending actions are disabled, concurrent identical operations share one upstream write, and successful state is retained in candidate metadata or read from original HTML active states. No source feed fetch is triggered.
 
 ## Data, pagination and boundaries
 

@@ -324,6 +324,20 @@ window.__ModuleLoader__.load({
         }
       }
 
+      confirmFeedback(requestedKey, result) {
+        const canonical = result?.articleKey;
+        const state = result?.exposureStates?.[canonical];
+        if (result?.readPersisted !== true || !validArticleKey(canonical) || !Number.isSafeInteger(result.readVersion)
+          || result.readVersion < 0 || state?.read !== true || !Number.isSafeInteger(state.exposureCount)
+          || state.exposureCount < 0) return false;
+        const confirmed = {};
+        for (const key of new Set([requestedKey, canonical])) if (validArticleKey(key)) confirmed[key] = state;
+        this.readVersion = Math.max(this.readVersion, result.readVersion);
+        this.mergeStates(confirmed);
+        if (!this.disposed) this.onRead(this.readKeys);
+        return true;
+      }
+
       eventId(type, articleKey, cycle) {
         const suffix = type === 'exposure' ? `:${cycle}` : '';
         return `${type}:${this.sessionId}:${eventHash(articleKey)}${suffix}`;
@@ -1448,6 +1462,7 @@ window.__ModuleLoader__.load({
               controller.items = controller.items.map((item) => keys.has(item.articleKey) ? { ...item, feedback: action } : item);
               controller.syncFeedback();
             }
+            readEvents.confirmFeedback(article.articleKey, result);
           }
           return result;
         }

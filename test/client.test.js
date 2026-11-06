@@ -244,6 +244,48 @@ test('feedback buttons submit through Host, prevent duplicates, switch actions a
   assert.match(like.title, /反馈失败/);
 });
 
+test('confirmed feedback marks an article read without three exposures and retires it', async () => {
+  payload = basePayload();
+  const key = 'url:' + 'c'.repeat(64) + ':' + 'd'.repeat(64);
+  payload.items = [{ ...article('read-on-feedback'), newscopeId: '321', articleKey: key }];
+  const originalFetch = globalThis.fetch;
+  let readEventCalls = 0;
+  globalThis.fetch = async (url, options = {}) => {
+    if (url === '/plugins/dsh-newscope-news-ticker/feedback') {
+      return Response.json({ ok: true, articleKey: key, action: 'like', statePersisted: true,
+        readPersisted: true, readVersion: 1,
+        exposureStates: { [key]: { read: true, readAt: new Date().toISOString(), readReason: 'manual', exposureCount: 0, lastShownAt: null } } });
+    }
+    if (url === '/plugins/dsh-newscope-news-ticker/read-events') readEventCalls++;
+    return originalFetch(url, options);
+  };
+  await start();
+  document.querySelector('[data-newscope-group]:not([data-newscope-clone]) [data-newscope-feedback-action="like"]').click();
+  await flush();
+  assert.equal(document.querySelector('[data-newscope-item]'), null, 'Host-confirmed feedback retires the article immediately in this geometry');
+  assert.equal(readEventCalls, 0, 'feedback confirmation does not use the exposure event path');
+});
+
+test('failed feedback neither marks read nor retires the article', async () => {
+  payload = basePayload();
+  const key = 'url:' + 'e'.repeat(64) + ':' + 'f'.repeat(64);
+  payload.items = [{ ...article('failed-feedback'), newscopeId: '654', articleKey: key }];
+  const originalFetch = globalThis.fetch;
+  let readEventCalls = 0;
+  globalThis.fetch = async (url, options = {}) => {
+    if (url === '/plugins/dsh-newscope-news-ticker/feedback') return Response.json({ error: 'rejected' }, { status: 500 });
+    if (url === '/plugins/dsh-newscope-news-ticker/read-events') readEventCalls++;
+    return originalFetch(url, options);
+  };
+  await start();
+  const like = document.querySelector('[data-newscope-group]:not([data-newscope-clone]) [data-newscope-feedback-action="like"]');
+  like.click();
+  await flush();
+  assert.ok(document.querySelector('[data-newscope-item]'));
+  assert.equal(like.dataset.newscopeFeedbackError, 'true');
+  assert.equal(readEventCalls, 0);
+});
+
 test('feedback controls explain and disable RSS-only articles without a Newscope ID', async () => {
   payload = basePayload();
   const originalFetch = globalThis.fetch;

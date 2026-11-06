@@ -2,7 +2,7 @@
 
 在 Agent 运行状态提示的上一行追加真正从右向左连续滚动的新闻，保留原有运行提示和计时。每条新闻保留独立 DOM 和原文链接；悬停或键盘焦点会暂停，移出后从原位置继续。多次模型运行之间也保留播放位置，不会每次从第一条重新开始；同一标签页刷新后也会通过 `sessionStorage` 从原位置继续。支持明暗主题和窄屏。始终忽略系统 `prefers-reduced-motion` 设置，保持核心滚动功能。
 
-下述持久已读和分层库存属于 **Unreleased 源码变更**；不表示正在运行的 Newscope/Host 已升级，也不表示真实浏览器验收通过。
+下述源码与固定版本功能不表示正在运行的 Newscope/Host 已升级，也不表示真实浏览器验收通过。
 
 ## 数据与边界
 
@@ -33,11 +33,11 @@ RSS 使用最宽有效 L2 的 `min_score`（默认 5），按最宽时效（默�
 
 ## 设置
 
-安装后可在 DSH 左侧 **设置 → 新闻跑马灯** 中配置，也可进入 **插件 → 已安装 → Newscope 新闻跑马灯**，在插件包详情页或 `newscope-news-ticker` 行配置页修改。所有常用项均通过 DSH `configForms` 读写，有效修改会自动保存并立即生效，无需点击保存。讯息滚动通过单一 `displayMode` 配置分为 **关闭、运行时显示、总是显示** 三级，破坏性移除原来的两个布尔字段：关闭时不显示跑马灯；运行时显示仅使用 Agent 状态行；总是显示还会在空闲时显示于输入框上方。标题区只显示新闻标题，不显示分类和来源；已读重播另有明确标记。
+安装后可在 DSH 左侧 **设置 → 新闻跑马灯** 中配置，也可进入 **插件 → 已安装 → Newscope 新闻跑马灯**，在插件包详情页或 `newscope-news-ticker` 行配置页修改。所有常用项均通过 DSH `configForms` 读写，有效修改会自动保存并立即生效，无需点击保存。讯息滚动通过单一 `displayMode` 配置分为 **关闭、运行时显示、总是显示** 三级，破坏性移除原来的两个布尔字段：关闭时不显示跑马灯；运行时显示仅使用 Agent 状态行；总是显示还会在空闲时显示于消息流末尾。所有形态共用同一消息内容列，宽度一致并随页面滚动；离开视口即暂停，重新可见时从原位置继续。标题区只显示新闻标题，不显示分类和来源；已读重播另有明确标记。
 
 ### 模型停止后的表现
 
-仅当 `displayMode=running` 时显示该设置。`runningIdleBehavior` 提供 **立即消失（hide，默认）、延迟后消失（delay）、不消失但停止滚动（pause）** 三种行为。延迟秒数由 `runningIdleDelaySeconds` 控制，范围 1–300、默认 5；延迟期间讯息移至输入框上方并继续滚动，到期后消失。pause 会在一次运行结束后留下静态讯息，下一次运行时恢复滚动；页面初始空闲且尚未经历运行时不会显示。
+仅当 `displayMode=running` 时显示该设置。`runningIdleBehavior` 提供 **立即消失（hide，默认）、延迟后消失（delay）、不消失但停止滚动（pause）** 三种行为。延迟秒数由 `runningIdleDelaySeconds` 控制，范围 1–300、默认 5；延迟期间讯息移至消息流末尾并继续滚动，到期后消失。pause 会在一次运行结束后留下静态讯息，下一次运行时恢复滚动；页面初始空闲且尚未经历运行时不会显示。
 
 ### 点赞与点踩
 
@@ -119,13 +119,13 @@ RSS 使用最宽有效 L2 的 `min_score`（默认 5），按最宽时效（默�
 在 DSH **Plugins** 的安装入口填写一个固定版本：
 
 ```text
-git+https://github.com/<OWNER>/dsh-newscope-news-ticker.git#v1.2.0
+git+https://github.com/<OWNER>/dsh-newscope-news-ticker.git#v1.2.1
 ```
 
 也可以使用 CLI：
 
 ```bash
-dsh plugin --profile web add 'git+https://github.com/<OWNER>/dsh-newscope-news-ticker.git#v1.2.0'
+dsh plugin --profile web add 'git+https://github.com/<OWNER>/dsh-newscope-news-ticker.git#v1.2.1'
 ```
 
 安装或迁移前请先遵循下方安全升级步骤。从早期本地目录安装迁移时，备份后在 Plugins 页面卸载旧 bundle，再安装 Git 版本，避免重复注册插件行和 HTTP 路由。不要手改 DSH 核心或 profile 的生成文件。
@@ -137,7 +137,7 @@ dsh plugin --profile web add 'git+https://github.com/<OWNER>/dsh-newscope-news-t
 3. **原版 RSS + 候选库 + HTML 兼容不要求部署 Newscope fork。** 新 JSON API 可选，若以后选择部署，需要单独获得明确授权，再 build/替换/重启目标 Newscope，并在隔离数据库副本检查 schema/索引；改源码不等于线上生效。开发验证不得读取生产数据库。
 4. 插件升级必须更新目标 **Host/插件安装及受影响的 Web 构建**，再刷新对应 GUI。只刷新浏览器不更新 Host，只更新 Host 也不能证明新客户端和设置已生效；未确认匹配的开发构建 watcher 运行时，不承诺热更新。
 5. 在 web-dev 实测真实滚动、三次独立曝光、刷新/重启持久性、后台/前台切换、安全移除、层级耗尽/恢复、重播标识、无新增、故障恢复及多标签页；检查请求，确认从未调用抓源接口。自动化 DOM/API 模拟不等于真实浏览器验收。
-6. **隔离验证后，再经用户明确确认正式发布**，才由维护者发布/安装新固定版本并操作正式服务。上面的 `v1.2.0` 只是安装 tag 示例，安装前需确认所选 tag 存在，不是本次 Unreleased 功能的发布声明；移除旧 bundle 前先完成备份。保留旧配置、程序和状态备份以便回退。
+6. **隔离验证后，再经用户明确确认正式发布**，才由维护者发布/安装新固定版本并操作正式服务。上面的 `v1.2.1` 是安装 tag 示例，安装前需确认所选 tag 存在；移除旧 bundle 前先完成备份。保留旧配置、程序和状态备份以便回退。
 
 本次文档工作不启动/重启任何服务，不表示已部署或真实浏览器验收通过。卸载或关闭 bundle 后，兼容适配器、动画、样式和设置入口移除，原生状态行恢复；卸载流程不要求清除持久已读历史。
 

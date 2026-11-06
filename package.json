@@ -1,6 +1,6 @@
 {
   "name": "dsh-newscope-news-ticker",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "A Newscope-backed interactive news ticker for the DSH Agent running status line.",
   "type": "module",
   "license": "MIT",

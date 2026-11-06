@@ -2,7 +2,13 @@
 
 ## Unreleased
 
-Unreleased source changes; original-Newscope compatibility validation passed on 2026-11-06: 302 automated tests, 8 real original-server HTTP checks and 12 real-GUI checks. The [verification record](<VERIFICATION.zh.md>) separates this evidence from historical stages and documents limitations. No production deployment/restart, production database access, version bump, push, tag or release; explicit release approval is still required.
+## 1.2.1 - 2026-11-06
+
+- Mount idle ticker states in the same width-constrained scrolling chat column as the running state, so widths match and page scrolling hides them instead of leaving them above the sticky composer. Pause playback outside the viewport and resume at the saved offset without charging hidden time.
+
+## 1.2.0 - 2026-11-06
+
+Original-Newscope compatibility validation passed on 2026-11-06: 302 automated tests, 8 real original-server HTTP checks and 12 real-GUI checks. The [verification record](<VERIFICATION.zh.md>) separates this evidence from historical stages and documents limitations. No production deployment/restart, production database access, version bump, push, tag or release; explicit release approval is still required.
 
 - Add running-only idle behavior settings: immediate hide (default), 1–300-second delayed hide with continued scrolling, or a persistent paused ticker above the composer that resumes on the next run.
 - Add hover/focus Newscope like/dislike controls through a validated same-origin Host proxy. Resolve stable article keys to numeric IDs, disable RSS-only/unknown targets, share concurrent identical writes, retain feedback metadata, and never inject the upstream HTML response. Successful feedback also persists a manual read immediately, without waiting for three exposures.
@@ -20,7 +26,7 @@ Unreleased source changes; original-Newscope compatibility validation passed on 
 - Document failure handling and finite guarantees: latest 10000 Host event IDs, browser pending 1000 events/24 hours and 5000 recent IDs, best-effort unload delivery, and no permanent exactly-once claim. Corrupt read storage is an explicit failure, never a silent empty-history reset.
 - Document safe upgrades: back up configuration, read state, candidate inventory and current program; validate isolated web-dev without reading production databases. Original Newscope needs no API fork deployment. A later optional API build/deployment/restart is a separate approved operation; DSH Host/plugin and affected Web artifacts still need their own controlled upgrade. No production service operation, tag or release is included. See the [original compatibility implementation notes](<docs/original-newscope-compatibility.zh.md>); isolated acceptance is complete; production rollout remains pending explicit approval.
 
-## 1.2.0 - 2026-11-05
+### Initial presentation and settings (2026-11-05)
 
 - Place the ticker above the native Agent running line and above the composer while idle, and show only article titles without category or source metadata.
 - Preserve ticker playback position across Agent running-row replacements and same-tab page refreshes, with throttled `sessionStorage` persistence and no cross-tab interference.

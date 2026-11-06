@@ -10,14 +10,14 @@ before title translation.
 
 See the [Chinese guide](<README.zh.md>) for configuration and operations. Settings are available under **Settings → News Ticker** and **Plugins → Installed → Newscope News Ticker → package detail or the `newscope-news-ticker` row**, using DSH `configForms` and explicit saves.
 
-The read-aware inventory changes below are **Unreleased source changes**, not a claim that the running Host/Newscope has been upgraded or that real-browser acceptance has passed.
+The source and tagged releases below do not imply that the running Host/Newscope has been upgraded or that real-browser acceptance has passed.
 
 ## Install from GitHub
 
 Install a fixed release through the DSH Plugins page or CLI:
 
 ```bash
-dsh plugin --profile web add 'git+https://github.com/<OWNER>/dsh-newscope-news-ticker.git#v1.2.0'
+dsh plugin --profile web add 'git+https://github.com/<OWNER>/dsh-newscope-news-ticker.git#v1.2.1'
 ```
 
 Before installation or migration, follow the safe-upgrade procedure below. After backing up a directory-linked development copy, remove that old bundle before installing its replacement; do not run two copies with the same plugin row and HTTP routes.
@@ -32,11 +32,11 @@ pnpm run check
 
 ## Settings
 
-Open **Settings → News Ticker**, or use the package/row configuration on the installed Plugins page. Valid changes are saved automatically and applied immediately; there is no Save button. **Show news ticker** has three levels: **Off**, **While Agent is running**, and **Always**. Always additionally mounts the ticker above the composer while idle. The setting is stored as the single `displayMode` field; the former two boolean fields are intentionally removed during development.
+Open **Settings → News Ticker**, or use the package/row configuration on the installed Plugins page. Valid changes are saved automatically and applied immediately; there is no Save button. **Show news ticker** has three levels: **Off**, **While Agent is running**, and **Always**. Always additionally mounts the ticker at the end of the chat flow while idle. Every mode uses the same content column, scrolls away with the page, pauses outside the viewport, and resumes at the saved offset. The setting is stored as the single `displayMode` field; the former two boolean fields are intentionally removed during development.
 
 ### When a running-only ticker becomes idle
 
-For `displayMode=running`, `runningIdleBehavior` selects **hide immediately (`hide`, default)**, **hide after a delay (`delay`)**, or **stay visible but stop scrolling (`pause`)**. `runningIdleDelaySeconds` accepts 1–300 seconds and defaults to 5. Delay mode moves the ticker above the composer and keeps scrolling until the deadline. Pause mode leaves a static ticker only after an actual run and resumes on the next run; initial idle alone does not create one.
+For `displayMode=running`, `runningIdleBehavior` selects **hide immediately (`hide`, default)**, **hide after a delay (`delay`)**, or **stay visible but stop scrolling (`pause`)**. `runningIdleDelaySeconds` accepts 1–300 seconds and defaults to 5. Delay mode moves the ticker to the end of the chat flow and keeps scrolling until the deadline. Pause mode leaves a static ticker only after an actual run and resumes on the next run; initial idle alone does not create one.
 
 ### Newscope feedback
 
@@ -113,6 +113,6 @@ Optional `translationEnabled`/`translationModel` translate non-Chinese and mixed
 3. **No Newscope fork/build/deployment is required for original-version RSS + candidate inventory + HTML compatibility.** The new JSON API is optional; choosing it later is a separate, explicitly approved build/deployment/restart operation, with schema/index review against an isolated database copy. Editing source does not change the running program. Development verification must not read the production database.
 4. Update the intended DSH **Host/plugin installation and the affected Web build**, then refresh that GUI. A browser refresh alone does not update Host code; a Host update alone does not prove that new client/settings assets are served. Do not assume plugin hot reload unless the matching development build watcher is actually running.
 5. In web-dev, verify real scrolling, three separate exposures, refresh/restart persistence, background/foreground changes, safe removal, tier exhaustion/recovery, replay labels, no-new-inventory behavior, failure recovery and multiple tabs. Inspect requests to confirm that no source-fetch endpoint is called. Automated DOM/API tests are not real-browser acceptance.
-6. **Only after isolated validation and explicit user confirmation** may a maintainer publish/install a new fixed release and perform production service operations. The `v1.2.0` tag above is an installation example, not a release of these Unreleased changes; verify the chosen tag exists before installing. Keep backups for rollback; disabling/uninstalling removes ticker UI, styles and settings without making read-history deletion part of the procedure.
+6. **Only after isolated validation and explicit user confirmation** may a maintainer publish/install a new fixed release and perform production service operations. The `v1.2.1` tag above is an installation example; verify the chosen tag exists before installing. Keep backups for rollback; disabling/uninstalling removes ticker UI, styles and settings without making read-history deletion part of the procedure.
 
 This documentation update does not start/restart services, deploy changes or record successful real-browser acceptance. See the [A delivery](<docs/stage-a-read-state-delivery.zh.md>), [B delivery](<docs/stage-b-browser-exposure-delivery.zh.md>), [C/D delivery](<docs/stage-c-d-inventory-delivery.zh.md>) and [verification record](<VERIFICATION.zh.md>) for scoped evidence; final acceptance must be recorded separately by the main agent.

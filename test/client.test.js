@@ -50,6 +50,7 @@ function installDom({ reducedMotion = false } = {}) {
   window.clearInterval = () => {};
   window.matchMedia = () => ({ matches: reducedMotion, addEventListener() {}, removeEventListener() {} });
   globalThis.ResizeObserver = class { observe() {} disconnect() {} };
+  globalThis.IntersectionObserver = undefined;
   Object.defineProperty(window.HTMLElement.prototype, 'getBoundingClientRect', {
     configurable: true,
     value() { return { width: this.hasAttribute('data-newscope-group') ? 400 : 800 }; },
@@ -302,8 +303,8 @@ test('feedback controls explain and disable RSS-only articles without a Newscope
   assert.equal(feedbackCalls, 0);
 });
 
-test('always display mode immediately mounts and removes the idle composer ticker', async () => {
-  document.body.innerHTML = '<div id="composer"><div data-composer-card><span>composer</span></div><div data-composer-dock><div data-slot="conversation.composer.dock"></div><span>cache hit</span></div></div>';
+test('always display mode mounts the idle ticker in the scrolling chat column', async () => {
+  document.body.innerHTML = '<div data-chat-flow><div data-slot="conversation.chat.flow"><span>last message</span></div></div><div id="composer"><div data-composer-card><span>composer</span></div><div data-composer-dock><div data-slot="conversation.composer.dock"></div><span>cache hit</span></div></div>';
   payload = basePayload();
   const configuration = createConfiguration();
   await start({ running: false, configuration });
@@ -311,11 +312,13 @@ test('always display mode immediately mounts and removes the idle composer ticke
 
   await configuration.mutate([{ op: 'set', path: ['displayMode'], value: 'always' }], 7);
   await flush();
+  const flow = document.querySelector('[data-chat-flow]');
   const composer = document.querySelector('#composer');
   const card = composer.querySelector('[data-composer-card]');
-  const ticker = composer.querySelector(':scope > [data-newscope-ticker]');
-  assert.ok(ticker, 'Always must show above the composer without waiting for a manual refresh');
-  assert.equal(ticker.nextElementSibling, card, 'the ticker must be immediately above the input card');
+  const ticker = flow.querySelector(':scope > [data-newscope-ticker]');
+  assert.ok(ticker, 'Always must show in the chat flow without waiting for a manual refresh');
+  assert.equal(ticker, flow.lastElementChild, 'the idle ticker uses the same content column and width as the running row');
+  assert.equal(composer.querySelector('[data-newscope-ticker]'), null, 'the sticky composer must not keep the ticker on screen');
   assert.equal(document.querySelector('[data-composer-dock] [data-newscope-ticker]'), null, 'the usage/context dock must remain untouched');
   assert.equal(card.classList.contains('dsh-newscope-running-content'), false, 'running-row styles must not alter the input card');
   assert.ok(ticker.hasAttribute('data-newscope-idle'));
@@ -328,12 +331,12 @@ test('running display keeps the current immediate-hide behavior by default', asy
   payload = basePayload();
   await start();
   document.querySelector('[data-chat-running]').remove();
-  document.body.insertAdjacentHTML('beforeend', '<div id="composer"><div data-composer-card><span>composer</span></div><div data-composer-dock><div data-slot="conversation.composer.dock"></div><span>cache hit</span></div></div>');
+  document.body.insertAdjacentHTML('beforeend', '<div data-chat-flow><div data-slot="conversation.chat.flow"><span>last message</span></div></div><div id="composer"><div data-composer-card><span>composer</span></div><div data-composer-dock><div data-slot="conversation.composer.dock"></div><span>cache hit</span></div></div>');
   await flush();
   assert.equal(document.querySelector('[data-newscope-ticker]'), null);
 });
 
-test('delayed hide keeps scrolling above the composer and disappears at the deadline', async (t) => {
+test('delayed hide keeps scrolling in the chat flow and disappears at the deadline', async (t) => {
   payload = basePayload();
   const configuration = createConfiguration({ ...DEFAULT_CONFIG, runningIdleBehavior: 'delay', runningIdleDelaySeconds: 5 });
   await start({ configuration });
@@ -353,12 +356,13 @@ test('delayed hide keeps scrolling above the composer and disappears at the dead
   });
 
   document.querySelector('[data-chat-running]').remove();
-  document.body.insertAdjacentHTML('beforeend', '<div id="composer"><div data-composer-card><span>composer</span></div><div data-composer-dock><div data-slot="conversation.composer.dock"></div><span>cache hit</span></div></div>');
+  document.body.insertAdjacentHTML('beforeend', '<div data-chat-flow><div data-slot="conversation.chat.flow"><span>last message</span></div></div><div id="composer"><div data-composer-card><span>composer</span></div><div data-composer-dock><div data-slot="conversation.composer.dock"></div><span>cache hit</span></div></div>');
   await flush();
-  const composer = document.querySelector('#composer');
-  const ticker = composer.querySelector(':scope > [data-newscope-ticker]');
-  assert.ok(ticker, 'the running ticker moves above the composer during the grace period');
-  assert.equal(ticker.nextElementSibling, composer.querySelector('[data-composer-card]'));
+  const flow = document.querySelector('[data-chat-flow]');
+  const ticker = flow.querySelector(':scope > [data-newscope-ticker]');
+  assert.ok(ticker, 'the running ticker moves into the chat flow during the grace period');
+  assert.equal(ticker, flow.lastElementChild);
+  assert.equal(document.querySelector('#composer [data-newscope-ticker]'), null);
   assert.equal(document.querySelector('[data-composer-dock] [data-newscope-ticker]'), null);
   assert.equal(ticker.dataset.paused, 'false');
   const timer = [...timers.values()].find((entry) => entry.delay === 5000);
@@ -372,7 +376,7 @@ test('delayed hide keeps scrolling above the composer and disappears at the dead
 });
 
 test('keep-paused applies only after a run, stays static while idle and resumes on the next run', async () => {
-  document.body.innerHTML = '<div id="composer"><div data-composer-card><span>composer</span></div><div data-composer-dock><div data-slot="conversation.composer.dock"></div><span>cache hit</span></div></div>';
+  document.body.innerHTML = '<div data-chat-flow><div data-slot="conversation.chat.flow"><span>last message</span></div></div><div id="composer"><div data-composer-card><span>composer</span></div><div data-composer-dock><div data-slot="conversation.composer.dock"></div><span>cache hit</span></div></div>';
   payload = basePayload();
   const configuration = createConfiguration({ ...DEFAULT_CONFIG, runningIdleBehavior: 'pause' });
   await start({ running: false, configuration });
@@ -383,9 +387,10 @@ test('keep-paused applies only after a run, stays static while idle and resumes 
   assert.ok(document.querySelector('[data-chat-running] [data-newscope-ticker]'));
   document.querySelector('[data-chat-running]').remove();
   await flush();
-  const idle = document.querySelector('#composer > [data-newscope-ticker]');
-  assert.ok(idle, 'the completed run leaves a ticker above the composer');
-  assert.equal(idle.nextElementSibling, document.querySelector('[data-composer-card]'), 'the static ticker must remain above the input card');
+  const idle = document.querySelector('[data-chat-flow] > [data-newscope-ticker]');
+  assert.ok(idle, 'the completed run leaves a ticker in the scrolling chat column');
+  assert.equal(idle, document.querySelector('[data-chat-flow]').lastElementChild);
+  assert.equal(document.querySelector('#composer [data-newscope-ticker]'), null, 'the static ticker must not stick to the composer');
   assert.equal(document.querySelector('[data-composer-dock] [data-newscope-ticker]'), null, 'the static ticker must not occupy the usage/context dock');
   assert.equal(idle.dataset.paused, 'true');
   const track = idle.querySelector('[data-newscope-track]');
@@ -450,6 +455,39 @@ test('real horizontal motion pauses on hover/focus and resumes without resetting
   frame(1316);
   frame(1332);
   assert.match(track.style.transform, /-2\.16px/);
+});
+
+test('scrolling the ticker outside the viewport pauses without losing playback position', async () => {
+  document.body.innerHTML = '<div data-chat-flow><div data-slot="conversation.chat.flow"><span>last message</span></div></div>';
+  let observerCallback;
+  let observed;
+  globalThis.IntersectionObserver = class {
+    constructor(callback) { observerCallback = callback; }
+    observe(target) { observed = target; }
+    disconnect() {}
+  };
+  payload = basePayload();
+  await start({ running: false, configuration: createConfiguration({ ...DEFAULT_CONFIG, displayMode: 'always' }) });
+  const ticker = document.querySelector('[data-newscope-ticker]');
+  const track = ticker.querySelector('[data-newscope-track]');
+  assert.equal(observed, ticker);
+  const intersect = (visible) => observerCallback([{ target: ticker, isIntersecting: visible, intersectionRatio: visible ? 1 : 0 }]);
+  intersect(true);
+  frame(1000); frame(1016);
+  assert.match(track.style.transform, /-0\.72px/);
+
+  intersect(false);
+  assert.equal(ticker.dataset.paused, 'true');
+  const hiddenTransform = track.style.transform;
+  frame(5000); frame(5016);
+  assert.equal(track.style.transform, hiddenTransform, 'hidden time must not advance the track');
+
+  intersect(true);
+  assert.equal(ticker.dataset.paused, 'false');
+  frame(6000);
+  assert.equal(track.style.transform, hiddenTransform, 'the first resumed frame establishes a fresh clock');
+  frame(6016);
+  assert.match(track.style.transform, /-1\.44px/, 'playback resumes from the exact pre-hide offset');
 });
 
 test('refresh reuses the mounted ticker, keeps its position and updates article links', async () => {

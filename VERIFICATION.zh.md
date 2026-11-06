@@ -1,5 +1,12 @@
 # 实际验证记录
 
+## 消息流布局与视口暂停（2026-11-06）
+
+- `always`、运行停止后的 `delay` / `pause` 不再挂载到 sticky composer，而是追加到原生 `[data-chat-flow]` 消息内容列末尾；与运行态共用 `--dsh-chat-content-width` 宽度约束，并随消息列表滚动隐藏。
+- 通过 `IntersectionObserver` 将视口可见性纳入统一播放控制。隐藏时不推进轨道；恢复可见时重置帧计时，从保存的偏移继续，不补算隐藏期间位移。悬停、聚焦、后台标签页及既有曝光几何规则保持有效。
+- `pnpm test`：**322/322 通过**（无跳过）；`pnpm run check` 与 `git diff --check` 通过。覆盖三种空闲入口的挂载位置、composer/dock 无残留、延迟到期、静态保留、隐藏暂停与原位续播。
+- 本轮完成自动化与原生布局源码核对，并已将当前工作区 tarball 安装到正式 `web` profile；**未做真实 GUI 验收或正式服务重启**。
+
 ## 运行停止后的显示策略（2026-11-06）
 
 - 新增仅用于 `displayMode=running` 的 `runningIdleBehavior: hide | delay | pause` 与 `runningIdleDelaySeconds`（1–300，默认 5）。默认立即消失；延迟期间继续滚动；pause 在经历运行后保留静态讯息，下次运行恢复。

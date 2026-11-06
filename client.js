@@ -78,7 +78,6 @@ window.__ModuleLoader__.load({
       .dsh-newscope-running-content { display:flex !important; align-items:center; flex:0 0 auto; width:100%; min-width:0; max-width:100%; overflow:hidden; }
       .dsh-newscope-running-content > [class*="runningText"] { flex:none; min-width:0; }
       .dsh-newscope-ticker { box-sizing:border-box; position:relative; flex:0 0 auto; width:100%; min-width:0; max-width:100%; height:26px; margin:0 0 2px; padding:0; overflow:hidden; color:var(--dsw-alias-label-secondary); font-size:var(--dsh-content-font-size-secondary,12px); line-height:24px; white-space:nowrap; contain:layout paint; }
-      .dsh-newscope-ticker[data-newscope-idle] { width:100%; margin:2px 0 4px; }
       .dsh-newscope-ticker:focus-visible { outline:1px solid var(--dsw-alias-brand-primary); outline-offset:1px; border-radius:2px; }
       .dsh-newscope-track { display:inline-flex; align-items:center; min-width:max-content; will-change:transform; transform:translate3d(0,0,0); }
       .dsh-newscope-group { display:inline-flex; align-items:center; flex:none; }
@@ -473,6 +472,9 @@ window.__ModuleLoader__.load({
         this.idlePaused = false;
         this.hover = false;
         this.focus = false;
+        // IntersectionObserver supplies a cheap, scroll-aware playback gate.
+        // Start optimistically; the first callback corrects initially hidden rows.
+        this.inViewport = true;
         this.disposed = false;
         this.signature = '';
         this.root = document.createElement('div');
@@ -483,7 +485,7 @@ window.__ModuleLoader__.load({
         this.root.setAttribute('role', 'region');
         this.root.setAttribute('aria-label', t('ariaLabel'));
         this.root.setAttribute('aria-live', 'off');
-        if (target.hasAttribute('data-composer-card')) this.root.dataset.newscopeIdle = '';
+        if (!host.hasAttribute('data-chat-running')) this.root.dataset.newscopeIdle = '';
         this.track = document.createElement('div');
         this.track.className = 'dsh-newscope-track';
         this.track.dataset.newscopeTrack = '';
@@ -507,11 +509,23 @@ window.__ModuleLoader__.load({
         this.root.addEventListener('focusout', this.onBlur);
         this.resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(() => this.measure()) : null;
         this.resizeObserver?.observe(this.root);
+        this.intersectionObserver = typeof IntersectionObserver === 'function' ? new IntersectionObserver((entries) => {
+          const entry = entries.find((candidate) => candidate.target === this.root);
+          if (this.disposed || !entry) return;
+          const visible = entry.isIntersecting && entry.intersectionRatio > 0;
+          if (this.inViewport === visible) return;
+          this.inViewport = visible;
+          // Never charge hidden time to the first visible frame on resume.
+          for (const peer of this.playback.controllers || [this]) peer.lastFrame = 0;
+          this.syncPause();
+          this.playback.selectOwner?.();
+        }) : null;
+        this.intersectionObserver?.observe(this.root);
         this.render();
       }
 
       syncPause() {
-        const paused = this.hover || this.focus || this.idlePaused;
+        const paused = this.hover || this.focus || this.idlePaused || !this.inViewport;
         if (this.root.dataset.paused !== String(paused)) {
           this.root.dataset.paused = String(paused);
           this.lastFrame = 0;
@@ -747,7 +761,8 @@ window.__ModuleLoader__.load({
           const elapsed = this.lastFrame ? Math.min(100, Math.max(0, time - this.lastFrame)) : 0;
           this.lastFrame = time;
           const peers = this.playback.controllers || [this];
-          const paused = peers.some((controller) => controller.hover || controller.focus || controller.idlePaused);
+          const paused = peers.some((controller) => controller.hover || controller.focus || controller.idlePaused)
+            || !peers.some((controller) => controller.inViewport);
           if (this.clockOwner && !paused && !document.hidden && this.groupWidth > 0) {
             const speed = SPEEDS[this.config.scrollSpeed] || SPEEDS.medium;
             const advanced = this.position + elapsed * speed / 1000;
@@ -805,6 +820,7 @@ window.__ModuleLoader__.load({
         this.disposed = true;
         if (this.raf) window.cancelAnimationFrame(this.raf);
         this.resizeObserver?.disconnect();
+        this.intersectionObserver?.disconnect();
         this.exposureCandidates.clear();
         this.root.removeEventListener('mouseenter', this.onEnter);
         this.root.removeEventListener('mouseleave', this.onLeave);
@@ -812,7 +828,7 @@ window.__ModuleLoader__.load({
         this.root.removeEventListener('focusout', this.onBlur);
         this.root.remove();
         this.host.classList.remove('dsh-newscope-running');
-        this.target.classList.remove('dsh-newscope-running-content');
+        this.target?.classList.remove('dsh-newscope-running-content');
       }
     }
 
@@ -1278,9 +1294,9 @@ window.__ModuleLoader__.load({
                   'inventory.level2.minScore': 'L2 minimum score (0–10)', 'inventory.level2.maxAgeHours': 'L2 maximum age (1–720 hours)',
                   inventoryHint: 'Only queries existing inventory; never fetches source feeds. Within the reported inventory scope, a tier must exhaust its unread items before relaxing to the next. Known-local inventory cannot prove remote exhaustion. These are configured thresholds, not the current effective filters, and never permanently change L0. Defaults: target 30, low watermark 10, debounce 30 seconds; L1 6 / 72 hours, L2 5 / 168 hours.',
                   display: 'Display', scrollSpeed: 'Scroll speed',
-                  displayMode: 'Show news ticker', displayModeHint: 'Off hides it everywhere. While running uses the Agent status row. Always also shows it above the composer while idle.',
+                  displayMode: 'Show news ticker', displayModeHint: 'Off hides it everywhere. While running uses the Agent status row. Always also shows it at the end of the scrolling chat flow while idle.',
                   mode: { off: 'Off', running: 'While Agent is running', always: 'Always' },
-                  runningIdleBehavior: 'When the model stops', runningIdleBehaviorHint: 'Only for While Agent is running. Delay keeps scrolling above the composer before hiding; Keep paused leaves a static ticker above the composer after a run.',
+                  runningIdleBehavior: 'When the model stops', runningIdleBehaviorHint: 'Only for While Agent is running. Delay keeps scrolling in the chat flow before hiding; Keep paused leaves a static ticker there after a run.',
                   idleBehavior: { hide: 'Disappear immediately', delay: 'Disappear after a delay', pause: 'Stay visible but stop scrolling' },
                   runningIdleDelaySeconds: 'Delay before disappearing (seconds)',
                   speed: { slow: 'Slow', medium: 'Medium', fast: 'Fast' },
@@ -1347,9 +1363,9 @@ window.__ModuleLoader__.load({
                   'inventory.level2.minScore': 'L2 最低评分（0–10）', 'inventory.level2.maxAgeHours': 'L2 最大时效（1–720 小时）',
                   inventoryHint: '仅查询已有库存，不抓取源站。在所报告的库存范围内，当前档位未读耗尽才放宽到下一档；已知本地库存无法证明远端耗尽。这些值是配置阈值，不是当前实际生效条件，也不会永久修改 L0。默认目标 30、低水位 10、防抖 30 秒；L1 为 6 分 / 72 小时，L2 为 5 分 / 168 小时。',
                   display: '展示', scrollSpeed: '滚动速度',
-                  displayMode: '讯息滚动显示', displayModeHint: '关闭时完全不显示；运行时显示仅使用 Agent 状态行；总是显示还会在空闲时显示于输入框上方。',
+                  displayMode: '讯息滚动显示', displayModeHint: '关闭时完全不显示；运行时显示仅使用 Agent 状态行；总是显示还会在空闲时显示于消息流末尾。所有形态随页面滚动，离开视口时暂停。',
                   mode: { off: '关闭', running: '运行时显示', always: '总是显示' },
-                  runningIdleBehavior: '模型停止后的讯息表现', runningIdleBehaviorHint: '仅用于“运行时显示”。延迟期间在输入框上方继续滚动；保留但停止滚动会在一次运行结束后留下静态讯息。',
+                  runningIdleBehavior: '模型停止后的讯息表现', runningIdleBehaviorHint: '仅用于“运行时显示”。延迟期间在消息流末尾继续滚动；保留但停止滚动会在一次运行结束后留下静态讯息。',
                   idleBehavior: { hide: '立即消失', delay: '延迟后消失', pause: '不消失但停止滚动' },
                   runningIdleDelaySeconds: '延迟消失时间（秒）',
                   speed: { slow: '慢', medium: '中', fast: '快' },
@@ -1448,7 +1464,7 @@ window.__ModuleLoader__.load({
         function syncClockOwners() {
           const all = [...controllers.values()];
           const previous = all.find((controller) => controller.clockOwner);
-          const usable = (controller) => controller && controller.groupWidth > 0 && rootIsVisible(controller.root);
+          const usable = (controller) => controller && controller.inViewport && controller.groupWidth > 0 && rootIsVisible(controller.root);
           const owner = usable(previous) ? previous : all.find(usable) || previous || all[0];
           playback.controllers = all;
           for (const controller of all) {
@@ -1521,13 +1537,11 @@ window.__ModuleLoader__.load({
           }
           const desired = new Map();
           for (const row of runningRows) desired.set(row, row.querySelector('[class*="runningContent"]') || row);
-          const addComposerTickers = () => {
-            for (const slot of document.querySelectorAll('[data-slot="conversation.composer.dock"]')) {
-              // The official dock sits BELOW the input card and holds usage/context pills.
-              // Mount beside the card instead so the ticker appears above the composer.
-              const host = slot.closest('[data-composer-dock]')?.parentElement;
-              const target = host?.querySelector(':scope > [data-composer-card]');
-              if (host && target) desired.set(host, target);
+          const addFlowTickers = () => {
+            for (const flow of document.querySelectorAll('[data-chat-flow]')) {
+              // Use the same width-constrained, scrolling column as RunningStatus.
+              // The sticky composer must not own an idle ticker or keep it on screen.
+              desired.set(flow, null);
             }
           };
           if (config.displayMode !== 'running') {
@@ -1538,13 +1552,13 @@ window.__ModuleLoader__.load({
             if (config.runningIdleBehavior === 'pause') {
               idleStartedAt = 0;
               clearIdleHide();
-              addComposerTickers();
+              addFlowTickers();
             } else if (config.runningIdleBehavior === 'delay') {
               if (!idleStartedAt) idleStartedAt = Date.now();
               const seconds = Math.max(1, Math.min(300, Number(config.runningIdleDelaySeconds) || 5));
               const deadline = idleStartedAt + seconds * 1000;
               if (Date.now() < deadline) {
-                addComposerTickers();
+                addFlowTickers();
                 armIdleHide(deadline);
               } else {
                 hadRunning = false;
@@ -1557,7 +1571,7 @@ window.__ModuleLoader__.load({
               clearIdleHide();
             }
           }
-          if (config.displayMode === 'always' && !hasRunning) addComposerTickers();
+          if (config.displayMode === 'always' && !hasRunning) addFlowTickers();
           for (const [host, controller] of controllers) {
             if (!desired.has(host) || !host.isConnected) { controller.dispose(); controllers.delete(host); }
           }

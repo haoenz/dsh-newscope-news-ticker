@@ -83,6 +83,26 @@ test('API IDs upgrade URL identity and survive later RSS-only updates and restar
   assert.deepEqual((await store().snapshot(SOURCE)).articles, rss.articles);
 });
 
+test('feedback state survives restart, alias lookup and RSS-only metadata refresh', async (t) => {
+  const { file, store } = await fixture(t);
+  const original = article(1, { newscopeId: '42' });
+  await store().merge(SOURCE, [original]);
+  const canonicalKey = articleKeyFor(original, SOURCE);
+  await store().recordFeedback(SOURCE, canonicalKey, 'like');
+  assert.equal((await store().snapshot(SOURCE)).articles[0].feedback, 'like');
+
+  const urlAlias = articleKeyFor({ url: original.url }, SOURCE);
+  await store({ now: () => NOW + HOUR }).recordFeedback(SOURCE, urlAlias, 'dislike', { now: NOW + HOUR });
+  const restarted = store({ now: () => NOW + HOUR });
+  const rss = await restarted.merge(SOURCE, [article(1, { title: 'RSS revision' })], { now: NOW + HOUR });
+  assert.equal(rss.articles[0].newscopeId, '42');
+  assert.equal(rss.articles[0].feedback, 'dislike');
+  assert.equal(rss.articles[0].articleKey, canonicalKey);
+  assert.equal(rss.articles[0].title, 'RSS revision');
+  assert.equal((await store({ now: () => NOW + HOUR }).snapshot(SOURCE)).articles[0].feedback, 'dislike');
+  await assertClean(file);
+});
+
 test('URL and API aliases bridge records, changed URLs and changed API IDs without duplication', async (t) => {
   const { store } = await fixture(t);
   await store().merge(SOURCE, [article('old', { newscopeId: '7' }), article('new')]);

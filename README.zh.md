@@ -7,7 +7,7 @@
 ## 数据与边界
 
 - **默认兼容未修改的原版 Newscope，不要求部署 fork 或新增 JSON API。** 原版路径为 RSS + 持久候选库，必要时按需读取 HTML 历史分页；候选缓存默认 5 分钟。
-- 插件**只查询 Newscope 已入库、已评分的文章，不抓源**；不调用抓源接口，不直接读取 Newscope SQLite，也不改变源管理、scheduler、正文抽取、评分、主题和反馈流程。HTML 解析只提取受限文章元数据，不执行页面代码，不保存正文。
+- 插件库存查询**只读取 Newscope 已入库、已评分的文章，不抓源**；不调用抓源接口，不直接读取 Newscope SQLite，也不改变源管理、scheduler 和正文抽取流程。只有用户主动点赞/点踩时才调用 Newscope 现有反馈接口，由其原生流程调整评分和偏好。HTML 解析只提取受限文章元数据，不执行页面代码，不保存正文。
 - 插件负责候选查询、评分/时效过滤、去重、持久曝光/已读、库存分层、四类曝光权重调度及 UI。不向会话写事件，不注册工具，不创建 Session。
 - 浏览器只访问同源插件路由：`GET /plugins/dsh-newscope-news-ticker/news.json`、`POST /plugins/dsh-newscope-news-ticker/read-events` 和模型目录；Newscope 凭证与模型 Key 不进入浏览器或会话。
 
@@ -34,6 +34,12 @@ RSS 使用最宽有效 L2 的 `min_score`（默认 5），按最宽时效（默�
 ## 设置
 
 安装后可在 DSH 左侧 **设置 → Newscope 新闻跑马灯** 中配置，也可进入 **插件 → 已安装 → Newscope 新闻跑马灯**，在插件包详情页或 `newscope-news-ticker` 行配置页修改。所有常用项均通过 DSH `configForms` 读写，有效修改会自动保存并立即生效，无需点击保存。讯息滚动通过单一 `displayMode` 配置分为 **关闭、运行时显示、总是显示** 三级，破坏性移除原来的两个布尔字段：关闭时不显示跑马灯；运行时显示仅使用 Agent 状态行；总是显示还会在空闲时显示于输入框上方。标题区只显示新闻标题，不显示分类和来源；已读重播另有明确标记。
+
+### 点赞与点踩
+
+悬停或键盘聚焦新闻后显示 👍 / 👎；触屏设备上控件保持可见。按钮请求同源 `POST /plugins/dsh-newscope-news-ticker/feedback`，Host 根据 `articleKey` 在候选库中反查文章并调用原版 Newscope 的 `/api/v1/feedback/{id}/like|dislike`，浏览器不能任意指定数字 ID。纯 RSS 条目尚未取得 `newscopeId` 时按钮禁用并说明原因。
+
+反馈沿用 Newscope 原生行为：点赞/点踩会调整当前评分、触发偏好更新并影响后续文章。当前操作和请求中的按钮均禁用，Host 共享并发的相同操作，避免重复加减分。成功状态写入候选元数据，原版 HTML 的 active 状态也会被解析；远端已接受但本地保存失败时返回 `statePersisted:false`，不会把它当作可重试失败而再次写远端。反馈不会触发源站抓取。
 
 `topicMap` 和 `sourceMap` 是可配置的主题/来源片段映射。Newscope 的 topic 由模型自由生成，匹配采用不区分大小写的包含匹配；未识别条目暂归入大众新闻。某类库存不足时，调度自动让出配额。
 

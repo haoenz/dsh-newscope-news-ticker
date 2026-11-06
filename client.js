@@ -8,6 +8,7 @@ window.__ModuleLoader__.load({
     const MANAGE_URL = '/plugins/dsh-newscope-news-ticker/manage';
     const MODELS_URL = '/plugins/dsh-newscope-news-ticker/models.json';
     const READ_EVENTS_URL = '/plugins/dsh-newscope-news-ticker/read-events';
+    const FEEDBACK_URL = '/plugins/dsh-newscope-news-ticker/feedback';
     const NS = 'newscope-news-ticker';
     const LOCALE_NS = 'dsh-newscope-news-ticker-client';
     const ROW_CONFIG_KEY = `${PACKAGE}#${NS}`;
@@ -82,6 +83,13 @@ window.__ModuleLoader__.load({
       .dsh-newscope-group { display:inline-flex; align-items:center; flex:none; }
       .dsh-newscope-item { display:inline-flex; align-items:center; flex:none; }
       .dsh-newscope-separator { flex:none; margin:0 16px; color:var(--dsw-alias-label-secondary); opacity:.55; }
+      .dsh-newscope-feedback-controls { display:inline-flex; align-items:center; flex:none; gap:3px; margin-left:7px; opacity:0; pointer-events:none; }
+      .dsh-newscope-item:hover .dsh-newscope-feedback-controls, .dsh-newscope-item:focus-within .dsh-newscope-feedback-controls { opacity:1; pointer-events:auto; }
+      .dsh-newscope-feedback-button { box-sizing:border-box; width:23px; height:22px; padding:0; border:1px solid var(--dsw-alias-border-l2); border-radius:4px; background:var(--dsw-alias-bg-layer-1); color:var(--dsw-alias-label-secondary); cursor:pointer; font-size:13px; line-height:20px; }
+      .dsh-newscope-feedback-button:hover:not(:disabled), .dsh-newscope-feedback-button[data-newscope-feedback-active=true] { border-color:var(--dsw-alias-brand-primary); color:var(--dsw-alias-brand-primary); }
+      .dsh-newscope-feedback-button:disabled { cursor:default; opacity:.45; }
+      .dsh-newscope-feedback-button[data-newscope-feedback-error=true] { border-color:var(--dsw-alias-text-danger,#d44); }
+      @media (hover:none) { .dsh-newscope-feedback-controls { opacity:1; pointer-events:auto; } }
       .dsh-newscope-link { display:inline-flex; align-items:center; max-width:none; color:var(--dsw-alias-label-secondary); text-decoration:none; cursor:pointer; }
       .dsh-newscope-link:hover { color:var(--dsw-alias-brand-primary); text-decoration:underline; text-underline-offset:3px; }
       .dsh-newscope-title { flex:none; }
@@ -121,8 +129,20 @@ window.__ModuleLoader__.load({
       }
     `;
 
-    function articleElement(article, config, clone) {
+    function articleElement(article, config, clone, t) {
       const target = config.openInNewTab ? '_blank' : undefined;
+      const feedbackAvailable = typeof article.newscopeId === 'string' && /^[1-9]\d{0,18}$/.test(article.newscopeId);
+      const feedbackButton = (action, icon) => h('button', {
+        type: 'button', className: 'dsh-newscope-feedback-button',
+        'data-newscope-feedback-action': action, 'data-newscope-feedback-active': article.feedback === action ? 'true' : 'false',
+        'aria-label': t('feedback.' + action), 'aria-pressed': article.feedback === action ? 'true' : 'false',
+        title: feedbackAvailable ? t('feedback.' + action) : t('feedback.unavailable'),
+        tabIndex: clone ? -1 : undefined, disabled: !feedbackAvailable || article.feedback === action ? true : undefined,
+      }, icon);
+      const feedbackControls = h('span', {
+        className: 'dsh-newscope-feedback-controls', role: 'group', 'aria-label': t('feedback.controls'),
+        title: feedbackAvailable ? undefined : t('feedback.unavailable'),
+      }, feedbackButton('like', '👍'), feedbackButton('dislike', '👎'));
       const anchor = h('a', {
         className: 'dsh-newscope-link', href: article.url, target,
         rel: 'noopener noreferrer', referrerPolicy: 'no-referrer',
@@ -136,7 +156,7 @@ window.__ModuleLoader__.load({
         'data-newscope-replay': article.replay === true ? 'true' : undefined,
       },
         article.replay === true ? h('span', { className: 'dsh-newscope-replay', title: '已读重播', style: 'margin-right:6px;opacity:.65' }, '↻ 重播') : null,
-        anchor, h('span', { className: 'dsh-newscope-separator', 'aria-hidden': 'true' }, '◆'));
+        anchor, feedbackControls, h('span', { className: 'dsh-newscope-separator', 'aria-hidden': 'true' }, '◆'));
     }
 
     // The ticker uses React elements only as inert descriptors. This tiny writer
@@ -149,10 +169,11 @@ window.__ModuleLoader__.load({
       if (!descriptor || !descriptor.type) return;
       const element = document.createElement(descriptor.type);
       for (const [key, value] of Object.entries(descriptor.props || {})) {
-        if (key === 'children' || value === undefined) continue;
+        if (key === 'children' || value === undefined || value === false) continue;
         if (key === 'className') element.className = value;
         else if (key === 'tabIndex') element.tabIndex = value;
         else if (key === 'referrerPolicy') element.referrerPolicy = value;
+        else if (value === true) element.setAttribute(key, '');
         else element.setAttribute(key, String(value));
       }
       const children = descriptor.props?.children;
@@ -413,7 +434,7 @@ window.__ModuleLoader__.load({
     }
 
     class TickerController {
-      constructor(host, target, items, config, t, playback, events) {
+      constructor(host, target, items, config, t, playback, events, onFeedback) {
         this.host = host;
         this.target = target;
         this.items = items;
@@ -421,6 +442,7 @@ window.__ModuleLoader__.load({
         this.t = t;
         this.playback = playback;
         this.events = events;
+        this.onFeedback = onFeedback;
         this.position = playback.position;
         this.cycle = playback.cycle;
         this.clockOwner = false;
@@ -431,6 +453,8 @@ window.__ModuleLoader__.load({
         this.exposureCandidates = new Map();
         this.exposureCounted = new Map();
         this.retiring = new Map();
+        this.feedbackPending = new Map();
+        this.feedbackErrors = new Set();
         this.hover = false;
         this.focus = false;
         this.disposed = false;
@@ -538,7 +562,7 @@ window.__ModuleLoader__.load({
       render(anchor = this.captureAnchor()) {
         const signature = JSON.stringify(this.items.map((item) => [item.articleKey, item.id, item.title, item.url, item.source, item.replay === true]))
           + JSON.stringify([this.config.openInNewTab]);
-        if (signature === this.signature) { this.measure(anchor); return; }
+        if (signature === this.signature) { this.measure(anchor); this.syncFeedback(); return; }
         this.signature = signature;
         this.root.dataset.reducedMotion = 'false';
         this.exposureCandidates.clear();
@@ -553,10 +577,17 @@ window.__ModuleLoader__.load({
             group.setAttribute('aria-hidden', 'true');
           }
           for (const item of this.items) {
-            mountDescriptor(group, articleElement(item, this.config, clone));
+            mountDescriptor(group, articleElement(item, this.config, clone, this.t));
+            const element = group.lastElementChild;
+            for (const button of element.querySelectorAll('[data-newscope-feedback-action]')) {
+              button.addEventListener('click', (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void this.submitFeedback(item, button.dataset.newscopeFeedbackAction);
+              });
+            }
             const key = item.articleKey;
             if (!validArticleKey(key)) continue;
-            const element = group.lastElementChild;
             for (const link of element.querySelectorAll('a')) {
               link.addEventListener('click', () => this.events.open(key));
               link.addEventListener('auxclick', (event) => { if (event.button === 1) this.events.open(key); });
@@ -565,6 +596,7 @@ window.__ModuleLoader__.load({
           this.track.appendChild(group);
         }
         this.measure(anchor);
+        this.syncFeedback();
         this.start();
       }
 
@@ -649,6 +681,44 @@ window.__ModuleLoader__.load({
         }
       }
 
+      syncFeedback() {
+        if (this.disposed) return;
+        const articles = new Map(this.items.map((item) => [item.articleKey, item]));
+        for (const element of this.track.querySelectorAll('[data-newscope-key]')) {
+          const article = articles.get(element.dataset.newscopeKey);
+          const key = article?.articleKey;
+          const available = typeof article?.newscopeId === 'string' && /^[1-9]\d{0,18}$/.test(article.newscopeId);
+          const pending = this.feedbackPending.has(key);
+          const failed = this.feedbackErrors.has(key);
+          for (const button of element.querySelectorAll('[data-newscope-feedback-action]')) {
+            const action = button.dataset.newscopeFeedbackAction;
+            const current = article?.feedback === action;
+            button.disabled = !available || pending || current;
+            button.dataset.newscopeFeedbackActive = String(current);
+            button.dataset.newscopeFeedbackError = String(failed);
+            button.setAttribute('aria-pressed', String(current));
+            const title = !available ? this.t('feedback.unavailable')
+              : pending ? this.t('feedback.pending')
+                : failed ? this.t('feedback.error')
+                  : current ? this.t('feedback.recorded') : this.t('feedback.' + action);
+            button.title = title;
+            button.setAttribute('aria-label', title);
+          }
+        }
+      }
+      async submitFeedback(article, action) {
+        const key = article?.articleKey;
+        if (this.disposed || !key || !article.newscopeId || article.feedback === action || this.feedbackPending.has(key)) return;
+        this.feedbackPending.set(key, action);
+        this.feedbackErrors.delete(key);
+        this.syncFeedback();
+        try { await this.onFeedback(article, action); }
+        catch { this.feedbackErrors.add(key); }
+        finally {
+          this.feedbackPending.delete(key);
+          this.syncFeedback();
+        }
+      }
       start() {
         if (this.disposed || this.raf) return;
         const frame = (time) => {
@@ -1138,6 +1208,12 @@ window.__ModuleLoader__.load({
               en: {
                 ariaLabel: 'Newscope news ticker', openManagement: 'Open Newscope management ↗',
                 category: { finance: 'Finance', technology: 'Technology', science: 'Science', general: 'News' },
+                feedback: {
+                  controls: 'Newscope feedback', like: 'Like this article in Newscope', dislike: 'Dislike this article in Newscope',
+                  unavailable: 'Feedback is unavailable until this article has a resolved Newscope ID.',
+                  pending: 'Submitting feedback to Newscope…', recorded: 'Feedback recorded in Newscope',
+                  error: 'Feedback failed. Click to retry.',
+                },
                 inventoryStatus: {
                   heading: 'Live inventory status', unknown: 'Unknown', service: 'Service', stale: 'Stale snapshot',
                   tier: 'Current tier', unreadCount: 'Unread inventory', effective: 'Effective score / age (hours)', replay: 'Replay items in this response',
@@ -1198,6 +1274,12 @@ window.__ModuleLoader__.load({
               zh: {
                 ariaLabel: 'Newscope 新闻跑马灯', openManagement: '打开 Newscope 管理界面 ↗',
                 category: { finance: '财经', technology: '科技', science: '科学', general: '新闻' },
+                feedback: {
+                  controls: 'Newscope 反馈', like: '在 Newscope 中点赞此文章', dislike: '在 Newscope 中点踩此文章',
+                  unavailable: '尚未取得此文章的 Newscope 数字 ID，暂时无法反馈。',
+                  pending: '正在向 Newscope 提交反馈…', recorded: '已向 Newscope 记录该反馈',
+                  error: '反馈失败，点击可重试。',
+                },
                 inventoryStatus: {
                   heading: '实时库存状态', unknown: '未知', service: '服务状态', stale: '陈旧快照（stale）',
                   tier: '当前档位', unreadCount: '未读库存', effective: '实际生效评分 / 时效（小时）', replay: '本次返回的重播条数',
@@ -1292,6 +1374,7 @@ window.__ModuleLoader__.load({
         }), 'newscope-news-ticker: native settings surfaces');
 
         let latest = { items: [], config: { displayMode: 'running' } };
+        const feedbackOverrides = new Map();
         const playback = createPlaybackState();
         playback.selectOwner = syncClockOwners;
         const readEvents = new ReadEventCoordinator(applyConfirmedRead);
@@ -1349,6 +1432,25 @@ window.__ModuleLoader__.load({
           if (owner) owner.syncTransform();
         }
 
+        async function submitFeedback(article, action) {
+          const response = await fetch(FEEDBACK_URL, {
+            method: 'POST', credentials: 'same-origin', cache: 'no-store',
+            headers: { 'content-type': 'application/json', accept: 'application/json' },
+            body: JSON.stringify({ articleKey: article.articleKey, action }),
+          });
+          const result = await response.json().catch(() => null);
+          if (!response.ok || result?.ok !== true || result.action !== action) throw new Error(result?.error || 'Feedback failed');
+          if (!disposed) {
+            const keys = new Set([article.articleKey, typeof result.articleKey === 'string' ? result.articleKey : article.articleKey]);
+            for (const key of keys) feedbackOverrides.set(key, action);
+            latest = { ...latest, items: latest.items.map((item) => keys.has(item.articleKey) ? { ...item, feedback: action } : item) };
+            for (const controller of controllers.values()) {
+              controller.items = controller.items.map((item) => keys.has(item.articleKey) ? { ...item, feedback: action } : item);
+              controller.syncFeedback();
+            }
+          }
+          return result;
+        }
         function sync() {
           if (disposed) return;
           const config = latest.config;
@@ -1367,7 +1469,7 @@ window.__ModuleLoader__.load({
           for (const [host, target] of desired) {
             const existing = controllers.get(host);
             if (existing) existing.update(latest.items, config);
-            else controllers.set(host, new TickerController(host, target, latest.items, config, t, playback, readEvents));
+            else controllers.set(host, new TickerController(host, target, latest.items, config, t, playback, readEvents, submitFeedback));
             // Metadata only: no overlay in the clipping viewport or exposure geometry changes.
             const root = controllers.get(host).root;
             const label = latest.inventoryLabel || t('ariaLabel');
@@ -1400,7 +1502,9 @@ window.__ModuleLoader__.load({
                 + ' · ' + t('inventoryStatus.inventoryScope') + ': ' + status.inventoryScope;
               const configured = configuration.getSnapshot().value;
               const config = configured && typeof configured === 'object' ? { ...payload.config, ...configured } : payload.config;
-              latest = { items: projected.items, config, inventoryLabel };
+              const items = projected.items.map((item) => feedbackOverrides.has(item.articleKey)
+                ? { ...item, feedback: feedbackOverrides.get(item.articleKey) } : item);
+              latest = { items, config, inventoryLabel };
               const minutes = Math.max(1, Math.min(1440, Number(config.refreshMinutes) || 5));
               if (currentRefreshMs !== minutes * 60000) { currentRefreshMs = minutes * 60000; armRefresh(); }
             } catch (error) {

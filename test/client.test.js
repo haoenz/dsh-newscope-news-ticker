@@ -179,6 +179,87 @@ test('client module registers and preserves the native running label', async () 
   assert.equal(link.title, 'Title a');
 });
 
+test('feedback buttons submit through Host, prevent duplicates, switch actions and recover after failure', async () => {
+  payload = basePayload();
+  const key = 'url:' + 'a'.repeat(64) + ':' + 'b'.repeat(64);
+  payload.items = [{ ...article('feedback'), newscopeId: '123', articleKey: key }];
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  let failure = false;
+  let release;
+  globalThis.fetch = async (url, options = {}) => {
+    if (url !== '/plugins/dsh-newscope-news-ticker/feedback') return originalFetch(url, options);
+    requests.push({ url, options });
+    if (failure) return Response.json({ error: 'rejected' }, { status: 500 });
+    return new Promise((resolve) => {
+      release = () => resolve(Response.json({ ok: true, articleKey: key, action: JSON.parse(options.body).action, statePersisted: true }));
+    });
+  };
+  await start();
+  const group = document.querySelector('[data-newscope-group]:not([data-newscope-clone])');
+  const track = document.querySelector('[data-newscope-track]');
+  const like = group.querySelector('[data-newscope-feedback-action="like"]');
+  const dislike = group.querySelector('[data-newscope-feedback-action="dislike"]');
+  const cloneLike = document.querySelector('[data-newscope-clone] [data-newscope-feedback-action="like"]');
+  assert.equal(like.disabled, false);
+  assert.equal(like.getAttribute('aria-pressed'), 'false');
+
+  like.click();
+  assert.equal(requests.length, 1);
+  assert.equal(like.disabled, true, 'pending feedback disables the normal button');
+  assert.equal(cloneLike.disabled, true, 'pending feedback also disables the clone');
+  like.click();
+  cloneLike.click();
+  assert.equal(requests.length, 1, 'pending and cloned controls cannot double-submit');
+  release();
+  await flush();
+  assert.equal(like.getAttribute('aria-pressed'), 'true');
+  assert.equal(document.querySelector('[data-newscope-track]'), track, 'feedback must not rebuild the moving track');
+  assert.equal(like.disabled, true, 'current feedback stays disabled to avoid another score adjustment');
+  assert.equal(dislike.disabled, false);
+  like.click();
+  assert.equal(requests.length, 1);
+  assert.deepEqual(JSON.parse(requests[0].options.body), { articleKey: key, action: 'like' });
+  assert.equal(requests[0].options.credentials, 'same-origin');
+
+  payload = { ...basePayload(), items: [{ ...article('feedback'), newscopeId: '123', articleKey: key }] };
+  document.dispatchEvent(new window.Event('visibilitychange'));
+  await flush();
+  assert.equal(like.getAttribute('aria-pressed'), 'true', 'a stale Host news cache must not clear confirmed browser feedback');
+  assert.equal(like.disabled, true);
+
+  dislike.click();
+  assert.equal(requests.length, 2);
+  release();
+  await flush();
+  assert.equal(dislike.getAttribute('aria-pressed'), 'true');
+  assert.equal(like.disabled, false);
+
+  failure = true;
+  like.click();
+  await flush();
+  assert.equal(requests.length, 3);
+  assert.equal(like.disabled, false, 'failed feedback can be retried');
+  assert.equal(like.dataset.newscopeFeedbackError, 'true');
+  assert.match(like.title, /反馈失败/);
+});
+
+test('feedback controls explain and disable RSS-only articles without a Newscope ID', async () => {
+  payload = basePayload();
+  const originalFetch = globalThis.fetch;
+  let feedbackCalls = 0;
+  globalThis.fetch = async (url, options) => {
+    if (url === '/plugins/dsh-newscope-news-ticker/feedback') feedbackCalls++;
+    return originalFetch(url, options);
+  };
+  await start();
+  const button = document.querySelector('[data-newscope-group]:not([data-newscope-clone]) [data-newscope-feedback-action="like"]');
+  assert.equal(button.disabled, true);
+  assert.match(button.title, /Newscope 数字 ID/);
+  button.click();
+  assert.equal(feedbackCalls, 0);
+});
+
 test('always display mode immediately mounts and removes the idle composer ticker', async () => {
   document.body.innerHTML = '<div data-slot="conversation.composer.dock"><span>composer</span></div>';
   payload = basePayload();

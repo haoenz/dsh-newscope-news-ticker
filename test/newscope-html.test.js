@@ -87,6 +87,21 @@ test('strict int64 identity, decoded entities and shared metadata model without 
   assert.deepEqual(Object.keys(article).sort(), ['articleKey', 'category', 'guid', 'id', 'newscopeId', 'publishedAt', 'score', 'source', 'title', 'topics', 'url'].sort());
 });
 
+test('original active feedback is metadata-only and conflicting states fail closed', async () => {
+  const liked = card({ id: BIG_ID })
+    .replace('btn-like-small"', 'btn-like-small active"')
+    .replace('btn-like"', 'btn-like active"');
+  const result = await run(mock([page([liked])]).fetch);
+  assert.equal(result.articles[0].feedback, 'like');
+  assert.equal(result.articles[0].newscopeId, BIG_ID);
+  assert.doesNotMatch(JSON.stringify(result), /hx-post|article-card/);
+
+  const conflicting = card({ id: BIG_ID })
+    .replace('btn-like-small"', 'btn-like-small active"')
+    .replace('btn-dislike"', 'btn-dislike active"');
+  await assert.rejects(run(mock([page([conflicting])]).fetch), /conflicting feedback state/);
+});
+
 test('entities are decoded once from HTML, literal entity text is preserved', async () => {
   const result = await run(mock([page([card({ title: 'Literal &amp;#39; &amp;amp; &lt;b&gt; &bogus;' })])]).fetch);
   assert.equal(result.articles[0].title, 'Literal &#39; &amp; <b> &bogus;');

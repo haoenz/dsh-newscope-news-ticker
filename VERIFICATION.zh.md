@@ -1,5 +1,11 @@
 # 实际验证记录
 
+## Newscope 点赞点踩反馈（2026-11-06）
+
+- 新增悬停/聚焦 👍/👎、同源 Host 反馈代理、稳定 `articleKey` → 数字 ID 反查、同操作防重和候选元数据持久化。原版 HTML active 反馈可解析，纯 RSS 无 ID 时明确禁用。
+- `pnpm test`：**313/313 通过**（无跳过）；`pnpm run check`、`git diff --check` 与打包 dry-run 通过。覆盖同源/Origin/JSON/大小限制、并发共享、上游失败/超时、本地保存失败不重复写远端、跨重启/别名/RSS 刷新，以及客户端切换和失败重试。
+- 上游 HTML 仅取消响应体，不解析或注入页面。本轮使用模拟上游和原版 HTML 夹具，**未对正式 Newscope 写入真实反馈，未做真实 GUI 验收、安装或服务重启**。
+
 ## 三级显示与设置即时生效（2026-11-06）
 
 - 讯息滚动显示破坏性迁移为单一 `displayMode: off | running | always`，删除 `enabled` / `onlyWhenRunning` 及所有兼容映射；Host、Client、默认配置和验收脚本均只使用该字段。

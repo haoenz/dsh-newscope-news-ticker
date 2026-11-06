@@ -100,10 +100,13 @@ test('query errors use stale candidates and latest read state without dropping t
   await h.cache.snapshot({}); assert.equal(h.queries().length, 2, 'failure is debounced too');
 });
 
-test('RSS fallback is explicit and history-limited; 500 and invalid JSON never silently fall back', async () => {
+test('RSS fallback is explicitly known-local; 500 and invalid JSON never silently fall back', async () => {
   const h = harness(); h.status = 404;
   const fallback = await h.cache.snapshot({});
-  assert.equal(fallback.capabilities.history, false); assert.equal(fallback.capabilities.source, 'rss');
+  assert.equal(fallback.capabilities.history, true); assert.equal(fallback.capabilities.source, 'rss');
+  assert.equal(fallback.capabilities.inventoryScope, 'known-local');
+  assert.equal(fallback.capabilities.remoteWindowComplete, false);
+  assert.match(fallback.warnings[0], /supplement unavailable/);
   assert.equal(fallback.pool.tier, 'empty');
   for (const status of [500, 400]) {
     const other = harness(); other.status = status;
@@ -143,10 +146,13 @@ test('cursor cycles, invalid identities and out-of-order pages fail closed', asy
   await assert.rejects(queryNewscope(async () => Response.json({ items: [article(1), article(2)], nextCursor: null }), config, { now: NOW }), /stable order/);
 });
 
-test('truncated bounded history does not authorize relaxation or claim a complete scan', async () => {
+test('truncated bounded history permits known-local selection but never claims a complete scan', async () => {
   const h = harness(Array.from({ length: 5001 }, (_, i) => article(i + 1, 6, 60)));
   const snapshot = await h.cache.snapshot({});
   assert.equal(h.queries().length, 50); assert.equal(h.cache.cache.articles.length, 5000);
-  assert.equal(snapshot.capabilities.history, false); assert.equal(snapshot.capabilities.truncated, true);
-  assert.equal(snapshot.items.length, 0); assert.equal(snapshot.pool.tier, 'empty');
+  assert.equal(snapshot.capabilities.history, true); assert.equal(snapshot.capabilities.truncated, true);
+  assert.equal(snapshot.capabilities.remoteWindowComplete, false);
+  assert.equal(snapshot.pool.scope, 'known-local');
+  assert.equal(snapshot.items.length, 30); assert.equal(snapshot.pool.tier, 'L1');
+  assert.ok(snapshot.items.every(item => item.replay === false));
 });

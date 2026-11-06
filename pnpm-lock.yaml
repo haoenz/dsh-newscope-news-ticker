@@ -178,6 +178,9 @@ importers:
       fast-xml-parser:
         specifier: ^5.3.4
         version: 5.11.2
+      parse5:
+        specifier: ^8.1.0
+        version: 8.1.0
     devDependencies:
       jsdom:
         specifier: ^27.1.0

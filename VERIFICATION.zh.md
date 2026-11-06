@@ -1,5 +1,20 @@
 # 实际验证记录
 
+## 原版 Newscope 兼容验收（2026-11-06）
+
+- **实现与隔离验收完成，未部署、未发布。** 默认 RSS＋持久候选库＋按需原版 HTML 分页；新增 JSON API 仅为可选增强。已知库存支持 L0/L1/L2/重播，但不宣称远端高档库存全量耗尽。
+- `pnpm test`：**302/302 通过**（无跳过）；语法检查、打包 dry-run 与 diff 检查通过。覆盖候选上限/锁/损坏/失败原子性、跨重启 URL/ID 别名、RSS 根/DTD、状态读取限额、原版 text/plain HX、降级状态码、15 分钟跨界重探、完整 API 权威与部分覆盖。
+- **真实原版 HTTP 8/8 通过**：使用新增接口之前的 `9c02bfa` 源码副本，仅加入测试夹具；新 API 实际返回 404，不是修改版模拟。真实 RSS＋3 页 HTML 收集 **130 条**，找回最新 100 条外的高档文章；验证分层/重播、抢占、重建 Host 缓存后的磁盘恢复、真实 503 stale、远端空 RSS 不删历史，以及无历史时真正空库存。时间 00:14:18（Asia/Shanghai）。
+- **真实 GUI 12/12 通过**：00:36:26—00:36:41（Asia/Shanghai），Chromium＋Xvfb，真实 DSH web-dev 3081 和上述原版 8082。覆盖 known-local/best-effort/候选数/限制提示、原生 idle ticker、L0→L1→L2＋重播、刷新保留已读、低水位发现新高分抢占、stale、远端 empty 后仍保留候选。没有页面异常、越权会话操作或清理错误。
+- 浏览器只使用新 QA 会话；本地 8083 固定响应夹具正常完成 **1 条协议流**，结束时 active=0，不调用真实外部模型或工具。空草稿 hero 不挂 composer dock，因此先完成本地首轮再验收真实 idle 对话；没有伪造 DOM、visibility、时钟或几何。
+- 原版 Go `server -race` 通过。8082 夹具收到 SIGTERM 后正常完成测试，退出码 0；审计 `noFeedFetch=true`、`feedFetchRequests=0`。
+- 收尾：3081/8082/8083 已关闭，专用 Xvfb 停止，web-dev 原始配置逐字恢复并 cmp 验证，失效认证文件已删除。正式 DSH/Newscope 进程 PID 90721/18443 不变；未读生产数据库，未推送、创建 tag/release 或重启正式服务。本轮调整尚未追加本地提交。
+- 边界：本轮是原版兼容专题 GUI 验收，**未重新执行历史阶段 E 的整套 17 项曝光浏览器流程**；曝光相关自动化回归仍在 302 项内。本轮关闭翻译/语义去重，不冒充外部模型或生产压力验收。HTML 页码并发漂移、尚未采集历史、远端删除/改分滞后仍是已接受限制。
+
+实现与复现：[原版兼容说明](<docs/original-newscope-compatibility.zh.md>)；本机私有证据：[HTTP 报告](<.dsh-dev/original-evidence/http-report.json>)、[GUI 报告](<.dsh-dev/original-evidence/browser-report.json>)、[范围提示](<.dsh-dev/original-evidence/settings-known-local.png>)、[远端空库后重播](<.dsh-dev/original-evidence/remote-empty-known-replay.png>)。证据含 GUI 信息，不随包公开发布。
+
+以下阶段 E 及更早记录仅代表当时版本；原“RSS 仅 L0/禁止重播”的限制已由本轮经用户确认的 known-local 方案替代。
+
 ## 阶段 E：设置、状态与隔离真实浏览器（2026-11-05）
 
 - **代码与验收完成，正式部署未执行。** 未重启正式 DSH 3080 / Newscope 8080；原进程 PID 90721 / 18443 保持不变。

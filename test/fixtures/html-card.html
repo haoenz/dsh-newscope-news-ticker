@@ -1,0 +1,38 @@
+<!-- Source: /home/haoen/newscope/src/server/templates/article-card.html, inspected 2026-11-05.
+     Rendered representative card; only whitespace / non-metadata decorative attributes reduced.
+     Original ID is NOT on article: content-ID and feedback endpoints carry the int64 ID. -->
+<article class="article-card" data-score="8.5">
+  <div class="article-header expanded-only">
+    <h3><a href="https://example.com/story?a=1&amp;b=2" target="_blank" rel="noopener">Chip&#39;s &quot;future&quot; &amp; science &#x2014; &hellip;</a></h3>
+    <div class="article-meta">
+      <a href="#" class="feed-name clickable-feed" data-feed="Research &amp; News" hx-get="/articles" hx-vals='{"feed":"Research &amp; News"}'>Research &amp; News</a>
+      <time datetime="2026-11-05T10:00:00Z">Nov 5, 2026 10:00 UTC</time>
+    </div>
+  </div>
+  <div class="article-header-condensed condensed-only">
+    <div class="condensed-main">
+      <h3><a href="https://example.com/story?a=1&amp;b=2" target="_blank" rel="noopener">Chip&#39;s &quot;future&quot; &amp; science &#x2014; &hellip;</a></h3>
+      <div class="condensed-meta">
+        <a href="#" class="feed-name clickable-feed" data-feed="Research &amp; News" hx-get="/articles">Research &amp; News</a>
+        <time datetime="2026-11-05T10:00:00Z">Nov 5, 10:00</time>
+        <span class="score-badge score-high">8.5</span>
+      </div>
+    </div>
+    <div class="condensed-actions">
+      <button class="btn-feedback btn-like-small" hx-post="/api/v1/feedback/9223372036854775807/like" hx-target="closest .article-card">👍</button>
+      <button class="btn-feedback btn-dislike-small" hx-post="/api/v1/feedback/9223372036854775807/dislike" hx-target="closest .article-card">👎</button>
+    </div>
+  </div>
+  <div class="expanded-only">
+    <p class="article-summary">BODY_MUST_NOT_BE_STORED</p>
+    <div class="classification"><div class="score-bar score-high" style="width: 85%"><span class="score-text">Score: 8.5/10</span></div></div>
+    <p class="explanation">EXPLANATION_MUST_NOT_BE_STORED</p>
+    <div class="topics"><a href="#" class="topic-tag clickable-topic" data-topic="AI &amp; Science" hx-get="/articles">AI &amp; Science</a></div>
+    <div class="article-actions">
+      <button class="btn-feedback btn-like" hx-post="/api/v1/feedback/9223372036854775807/like">👍 Like</button>
+      <button class="btn-feedback btn-dislike" hx-post="/api/v1/feedback/9223372036854775807/dislike">👎 Dislike</button>
+      <button class="btn-extract" hx-post="/api/v1/extract/9223372036854775807" hx-target="closest .article-card">Extract Content</button>
+    </div>
+    <div id="content-9223372036854775807"></div>
+  </div>
+</article>

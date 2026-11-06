@@ -1,0 +1,10 @@
+<!-- Source: original src/server/htmx_handlers.go:268,285-301 and
+     templates/pagination.html:1-3,56-58, inspected 2026-11-05.
+     Genuine zero-result HTMX response, NOT an arbitrary empty body. -->
+<span id="article-count" class="article-count" hx-swap-oob="true">(0/0)</span>
+<select id="topic-filter" name="topic" hx-swap-oob="true"><option value="">All Topics</option></select>
+<select id="feed-filter" name="feed" hx-swap-oob="true"><option value="">All Feeds</option></select>
+<div id="articles-container" class="view-expanded"><div id="articles-list">
+<p class="no-articles">No articles found. Try lowering the score filter or wait for classification to run.</p>
+</div></div>
+<div class="pagination" id="pagination"></div>

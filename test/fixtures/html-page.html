@@ -1,0 +1,9 @@
+<!-- Source: /home/haoen/newscope/src/server/htmx_handlers.go:250-303 and
+     templates/pagination.html, inspected 2026-11-05. Test placeholders are substituted before parsing.
+     HTMX has OOB count + articles-container (no articles-with-pagination wrapper).
+     The upstream checkout has pagination.html, not partials*.html. -->
+<span id="article-count" class="article-count" hx-swap-oob="true">({{COUNT}}/{{TOTAL}})</span>
+<select id="topic-filter" name="topic" hx-swap-oob="true"><option value="">All Topics</option></select>
+<select id="feed-filter" name="feed" hx-swap-oob="true"><option value="">All Feeds</option></select>
+<div id="articles-container" class="view-expanded"><div id="articles-list">{{CARDS}}</div></div>
+<div class="pagination" id="pagination">{{PAGINATION}}</div>

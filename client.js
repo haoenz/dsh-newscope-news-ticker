@@ -860,8 +860,10 @@ window.__ModuleLoader__.load({
       const text = (value) => typeof value === 'string' && value.trim() ? value : unknown;
       const number = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? String(value) : unknown;
       const boolean = (value) => typeof value === 'boolean' ? String(value) : unknown;
+      const count = (value) => Number.isSafeInteger(value) && value >= 0 ? String(value) : unknown;
       const pool = payload?.pool;
       const capabilities = payload?.capabilities;
+      const store = payload?.inventoryStore;
       const replayKnown = pool && Array.isArray(payload?.items) && payload.items.every((item) => typeof item?.replay === 'boolean');
       return {
         service: text(payload?.service), stale: boolean(payload?.stale), tier: text(pool?.tier),
@@ -869,6 +871,10 @@ window.__ModuleLoader__.load({
         effective: 'minScore: ' + number(pool?.effective?.minScore) + ' / maxAgeHours: ' + number(pool?.effective?.maxAgeHours),
         replay: replayKnown ? String(payload.items.filter((item) => item.replay).length) : unknown,
         capabilities: 'history: ' + boolean(capabilities?.history) + ' / source: ' + text(capabilities?.source) + ' / truncated: ' + boolean(capabilities?.truncated),
+        inventoryScope: text(capabilities?.inventoryScope), coverage: text(capabilities?.coverage),
+        remoteWindowComplete: boolean(capabilities?.remoteWindowComplete), localInventory: boolean(capabilities?.localInventory),
+        retainedCount: count(store?.retainedCount), firstCollectedAt: text(store?.firstCollectedAt),
+        updatedAt: text(store?.updatedAt), pruned: count(store?.pruned),
         queriedAt: text(payload?.queriedAt),
       };
     }
@@ -912,7 +918,7 @@ window.__ModuleLoader__.load({
               const response = await fetch(FEED_URL, { method: 'GET', credentials: 'same-origin', cache: 'no-store', signal: controller.signal });
               const payload = await response.json();
               if (!payload || typeof payload !== 'object' || Array.isArray(payload)) throw new Error('Invalid news payload');
-              if (!response.ok && payload.service !== 'read-state-unavailable') throw new Error('HTTP ' + response.status);
+              if (!response.ok && !['read-state-unavailable', 'candidate-state-unavailable'].includes(payload.service)) throw new Error('HTTP ' + response.status);
               finish(payload, '');
             } catch { finish(null, 'request'); }
           })();
@@ -931,6 +937,8 @@ window.__ModuleLoader__.load({
       const values = inventoryStatusValues(state.payload, t);
       const capabilities = state.payload?.capabilities;
       const readError = state.payload?.service === 'read-state-unavailable';
+      const candidateError = state.payload?.service === 'candidate-state-unavailable';
+      const warnings = Array.isArray(state.payload?.warnings) ? state.payload.warnings.filter((warning) => typeof warning === 'string') : [];
       return h('section', { 'data-newscope-inventory-status': true, 'aria-label': t('inventoryStatus.heading') },
         h('h4', null, t('inventoryStatus.heading')),
         h('p', { className: 'dsh-newscope-settings-note' }, t('inventoryStatus.hint')),
@@ -938,10 +946,16 @@ window.__ModuleLoader__.load({
           ...Object.entries(values).map(([key, value]) => h('div', { key, className: 'dsh-newscope-settings-field' },
             h('span', null, t('inventoryStatus.' + key)), h('span', { 'data-newscope-status': key }, value)))),
         capabilities?.history === false ? h('p', { className: 'dsh-newscope-settings-note', 'data-newscope-warning': 'history' }, t('inventoryStatus.historyWarning')) : null,
-        capabilities?.source === 'rss' ? h('p', { className: 'dsh-newscope-settings-note', 'data-newscope-warning': 'rss' }, t('inventoryStatus.rssWarning')) : null,
+        typeof capabilities?.source === 'string' && capabilities.source.startsWith('rss') ? h('p', { className: 'dsh-newscope-settings-note', 'data-newscope-warning': 'rss' }, t('inventoryStatus.rssWarning')) : null,
         capabilities?.truncated === true ? h('p', { className: 'dsh-newscope-settings-note', 'data-newscope-warning': 'truncated' }, t('inventoryStatus.truncatedWarning')) : null,
-        readError || state.error ? h('p', { role: 'alert', className: 'dsh-newscope-settings-status', 'data-error': true, 'data-newscope-status': 'error' },
-          t(readError ? 'inventoryStatus.readError' : state.error === 'timeout' ? 'inventoryStatus.timeout' : 'inventoryStatus.requestError')) : null,
+        capabilities?.inventoryScope === 'known-local' ? h('p', { className: 'dsh-newscope-settings-note', 'data-newscope-warning': 'known-local' }, t('inventoryStatus.knownLocalWarning')) : null,
+        capabilities?.inventoryScope === 'remote-window' || capabilities?.remoteWindowComplete === true ? h('p', { className: 'dsh-newscope-settings-note', 'data-newscope-warning': 'remote-window' }, t('inventoryStatus.remoteWindowWarning')) : null,
+        capabilities?.coverage === 'best-effort' ? h('p', { className: 'dsh-newscope-settings-note', 'data-newscope-warning': 'best-effort' }, t('inventoryStatus.bestEffortWarning')) : null,
+        capabilities?.coverage === 'partial' ? h('p', { className: 'dsh-newscope-settings-note', 'data-newscope-warning': 'partial' }, t('inventoryStatus.partialWarning')) : null,
+        warnings.length ? h('ul', { className: 'dsh-newscope-settings-note', 'data-newscope-status': 'warnings' },
+          ...warnings.map((warning, index) => h('li', { key: index }, warning))) : null,
+        readError || candidateError || state.error ? h('p', { role: 'alert', className: 'dsh-newscope-settings-status', 'data-error': true, 'data-newscope-status': 'error' },
+          t(readError ? 'inventoryStatus.readError' : candidateError ? 'inventoryStatus.candidateError' : state.error === 'timeout' ? 'inventoryStatus.timeout' : 'inventoryStatus.requestError')) : null,
         h('div', { className: 'dsh-newscope-settings-actions' }, h('button', {
           type: 'button', 'data-newscope-refresh-status': true, disabled: state.loading, onClick: () => refreshRef.current(),
         }, t(state.loading ? 'inventoryStatus.loading' : 'inventoryStatus.refresh'))));
@@ -1107,10 +1121,18 @@ window.__ModuleLoader__.load({
                   heading: 'Live inventory status', unknown: 'Unknown', service: 'Service', stale: 'Stale snapshot',
                   tier: 'Current tier', unreadCount: 'Unread inventory', effective: 'Effective score / age (hours)', replay: 'Replay items in this response',
                   capabilities: 'Query capabilities', queriedAt: 'Last inventory query', refresh: 'Refresh status', loading: 'Refreshing status…',
-                  hint: 'Queries existing inventory only; never fetches source feeds. Refreshes every 30 seconds while visible, with a 15-second timeout.',
-                  historyWarning: 'History is unavailable or incomplete; only the standard tier is reliable.',
-                  rssWarning: 'RSS fallback has a limited window, not full historical inventory.',
-                  truncatedWarning: 'Query was truncated; the returned window cannot prove higher tiers are exhausted.',
+                  inventoryScope: 'Inventory scope', coverage: 'Coverage', remoteWindowComplete: 'JSON query window complete',
+                  localInventory: 'Local candidate inventory available', retainedCount: 'Retained candidates for this source',
+                  firstCollectedAt: 'First collection time (not the start of complete history)', updatedAt: 'Candidate store updated', pruned: 'Candidates pruned globally in this operation',
+                  hint: 'Queries existing inventory only; never fetches source feeds. Refreshes every 30 seconds while visible, with a 15-second timeout. history describes available known history, not remote completeness. Missing fields are unknown.',
+                  historyWarning: 'The Host reports history unavailable (legacy response compatible); this does not mean RSS always supports only L0. Relaxation and replay depend on available known candidates.',
+                  rssWarning: 'RSS has a limited source window. RSS plus a persistent candidate store can support L0/L1/L2 and replay over known inventory; HTML pagination can supplement history on demand. The new JSON API is optional.',
+                  knownLocalWarning: 'Relaxation and replay apply only to candidates collected by this plugin; they cannot prove remote higher-tier unread items are exhausted.',
+                  remoteWindowWarning: 'remoteWindowComplete=true applies only to a complete JSON pagination query window, not a fixed snapshot of the entire database.',
+                  bestEffortWarning: 'HTML history is best-effort: concurrent changes during page-number pagination may cause missed items.',
+                  partialWarning: 'Coverage is partial; missing or truncated results cannot prove remote higher-tier unread items are exhausted.',
+                  truncatedWarning: 'Query was truncated; the returned window cannot prove remote higher-tier unread items are exhausted.',
+                  candidateError: 'candidate-state-unavailable: persistent candidate storage is unavailable; this is not an empty inventory. This is separate from read-state-unavailable.',
                   readError: 'read-state-unavailable: persistent read state is unavailable. Inventory cannot be confirmed; this is not an empty pool.',
                   requestError: 'Could not load inventory status. Values are unknown; this is not an empty pool.',
                   timeout: 'Inventory status request timed out. Refresh to retry.',
@@ -1129,7 +1151,7 @@ window.__ModuleLoader__.load({
                   'inventory.refillDebounceSeconds': 'Inventory query debounce (1–3600 seconds)',
                   'inventory.level1.minScore': 'L1 minimum score (0–10)', 'inventory.level1.maxAgeHours': 'L1 maximum age (1–720 hours)',
                   'inventory.level2.minScore': 'L2 minimum score (0–10)', 'inventory.level2.maxAgeHours': 'L2 maximum age (1–720 hours)',
-                  inventoryHint: 'Only queries existing inventory; never fetches source feeds. A tier must exhaust its unread items before relaxing to the next. These are configured thresholds, not the current effective filters, and never permanently change L0. Defaults: target 30, low watermark 10, debounce 30 seconds; L1 6 / 72 hours, L2 5 / 168 hours.',
+                  inventoryHint: 'Only queries existing inventory; never fetches source feeds. Within the reported inventory scope, a tier must exhaust its unread items before relaxing to the next. Known-local inventory cannot prove remote exhaustion. These are configured thresholds, not the current effective filters, and never permanently change L0. Defaults: target 30, low watermark 10, debounce 30 seconds; L1 6 / 72 hours, L2 5 / 168 hours.',
                   display: 'Display', scrollSpeed: 'Scroll speed',
                   speed: { slow: 'Slow', medium: 'Medium', fast: 'Fast' },
                   onlyWhenRunning: 'Only while Agent is running', onlyWhenRunningHint: 'When off, an idle ticker appears above the composer.',
@@ -1157,10 +1179,18 @@ window.__ModuleLoader__.load({
                   heading: '实时库存状态', unknown: '未知', service: '服务状态', stale: '陈旧快照（stale）',
                   tier: '当前档位', unreadCount: '未读库存', effective: '实际生效评分 / 时效（小时）', replay: '本次返回的重播条数',
                   capabilities: '查询能力', queriedAt: '最近库存查询时间', refresh: '刷新状态', loading: '正在刷新状态…',
-                  hint: '仅查询已有库存，不抓取源站。可见时每 30 秒刷新一次，请求超时为 15 秒。',
-                  historyWarning: '历史库存不可用或不完整，仅标准档结果可靠。',
-                  rssWarning: '当前回退到 RSS 有限窗口，不代表完整历史库存。',
-                  truncatedWarning: '查询已截断，不能据此断言较高档位已耗尽。',
+                  inventoryScope: '库存范围', coverage: '覆盖程度', remoteWindowComplete: 'JSON 查询窗口完整',
+                  localInventory: '本地候选库存可用', retainedCount: '当前来源保留候选数',
+                  firstCollectedAt: '首次采集时间（不是完整历史起点）', updatedAt: '候选库更新时间', pruned: '本次全局淘汰候选数',
+                  hint: '仅查询已有库存，不抓取源站。可见时每 30 秒刷新一次，请求超时为 15 秒。history 表示可用已知历史，不代表远端完整性；缺失字段显示未知。',
+                  historyWarning: 'Host 报告历史不可用（兼容旧响应），不代表 RSS 一律只有 L0；放宽与重播取决于可用已知候选。',
+                  rssWarning: 'RSS 来源窗口有限；RSS 加持久候选库可在已知库存上执行 L0/L1/L2 与重播，HTML 分页可按需补历史，新 JSON API 可选。',
+                  knownLocalWarning: '放宽与重播仅针对本插件已收集候选，无法证明远端高档未读耗尽。',
+                  remoteWindowWarning: 'remoteWindowComplete=true 仅表示完整 JSON 分页查询窗口，不是整个数据库的恒定快照。',
+                  bestEffortWarning: 'HTML 历史为尽力覆盖（best-effort）：页码分页期间的并发变化可能漏项。',
+                  partialWarning: '覆盖不完整（partial）；缺项或截断不能证明远端高档未读耗尽。',
+                  truncatedWarning: '查询已截断，不能据此断言远端高档未读耗尽。',
+                  candidateError: 'candidate-state-unavailable：候选持久化不可用，这不是空库存；与 read-state-unavailable（已读状态不可用）不同。',
                   readError: 'read-state-unavailable：持久已读状态不可用，无法确认库存；这不是库存为空。',
                   requestError: '无法加载库存状态，当前数值未知；这不是库存为空。',
                   timeout: '库存状态请求超时，可刷新重试。',
@@ -1179,7 +1209,7 @@ window.__ModuleLoader__.load({
                   'inventory.refillDebounceSeconds': '库存查询防抖（1–3600 秒）',
                   'inventory.level1.minScore': 'L1 最低评分（0–10）', 'inventory.level1.maxAgeHours': 'L1 最大时效（1–720 小时）',
                   'inventory.level2.minScore': 'L2 最低评分（0–10）', 'inventory.level2.maxAgeHours': 'L2 最大时效（1–720 小时）',
-                  inventoryHint: '仅查询已有库存，不抓取源站。当前档位未读耗尽才放宽到下一档；这些值是配置阈值，不是当前实际生效条件，也不会永久修改 L0。默认目标 30、低水位 10、防抖 30 秒；L1 为 6 分 / 72 小时，L2 为 5 分 / 168 小时。',
+                  inventoryHint: '仅查询已有库存，不抓取源站。在所报告的库存范围内，当前档位未读耗尽才放宽到下一档；已知本地库存无法证明远端耗尽。这些值是配置阈值，不是当前实际生效条件，也不会永久修改 L0。默认目标 30、低水位 10、防抖 30 秒；L1 为 6 分 / 72 小时，L2 为 5 分 / 168 小时。',
                   display: '展示', scrollSpeed: '滚动速度',
                   speed: { slow: '慢', medium: '中', fast: '快' },
                   onlyWhenRunning: '仅在 Agent 运行时显示', onlyWhenRunningHint: '关闭后，空闲时也会在输入框上方显示一行新闻。',
@@ -1341,7 +1371,8 @@ window.__ModuleLoader__.load({
               if (!projected) return;
               const status = inventoryStatusValues(payload, t);
               const inventoryLabel = t('ariaLabel') + ' · ' + t('inventoryStatus.tier') + ': ' + status.tier
-                + ' · ' + t('inventoryStatus.unreadCount') + ': ' + status.unreadCount + ' · ' + status.effective;
+                + ' · ' + t('inventoryStatus.unreadCount') + ': ' + status.unreadCount + ' · ' + status.effective
+                + ' · ' + t('inventoryStatus.inventoryScope') + ': ' + status.inventoryScope;
               latest = { items: projected.items, config: payload.config, inventoryLabel };
               const minutes = Math.max(1, Math.min(1440, Number(payload.config.refreshMinutes) || 5));
               if (currentRefreshMs !== minutes * 60000) { currentRefreshMs = minutes * 60000; armRefresh(); }

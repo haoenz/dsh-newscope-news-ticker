@@ -191,7 +191,7 @@ test('damaged persistent state fails closed instead of rebuilding an empty histo
   await assert.rejects(invalidSchema.present([ARTICLE], { source: SOURCE }), /damaged or unreadable/);
 });
 
-test('NewsCache filters read items from fresh and stale snapshots without source fetches', async (t) => {
+test('NewsCache keeps read truth and explicitly labels known-local replay without source fetches', async (t) => {
   const file = await stateFile(t);
   const readState = new ReadStateStore({ file });
   const counter = { calls: [] };
@@ -212,13 +212,18 @@ test('NewsCache filters read items from fresh and stale snapshots without source
 
   await readState.recordEvents([exposure('snapshot-3', key)]);
   const third = await cache.snapshot({});
-  assert.equal(third.items.length, 0);
+  assert.equal(third.items.length, 1);
+  assert.equal(third.items[0].replay, true);
+  assert.equal(third.exposureStates[key].read, true);
+  assert.equal(third.capabilities.inventoryScope, 'known-local');
   assert.equal(third.service, 'ok');
   cache.cache.fetchedAt = Date.now() - 600_000;
   fail = true;
   const stale = await cache.snapshot({});
   assert.equal(stale.service, 'cache');
-  assert.equal(stale.items.length, 0);
+  assert.equal(stale.items.length, 1);
+  assert.equal(stale.items[0].replay, true);
+  assert.equal(stale.exposureStates[key].exposureCount, 3);
   assert.equal(counter.calls.some((url) => /\/feeds(?:\/|\?)/.test(url)), false);
 });
 

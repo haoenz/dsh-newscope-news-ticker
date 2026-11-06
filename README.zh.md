@@ -6,19 +6,30 @@
 
 ## 数据与边界
 
-- Host 优先读取 `GET /api/v1/articles` 分页元数据和 `GET /api/v1/status`，候选缓存默认 5 分钟。插件**只查询 Newscope 已入库、已评分的文章，不抓源**；不调用 `/api/v1/feeds/{id}/fetch` 或任何批量抓取接口。
-- Newscope 仍负责源管理、定时抓取、正文抽取、AI 评分、主题、反馈学习和持久化。本轮新增了 Newscope 只读查询 API 源码，不等于“不改 Newscope”，但不改其 scheduler、源列表、抽取和评分流程。插件不直接读取 Newscope SQLite，也不解析管理页面。
-- 插件负责候选查询、评分/时效过滤、去重、持久曝光/已读、库存分层和四类曝光权重调度及 UI。
-- 不向会话写事件，不注册工具，不创建 Session。标题翻译默认关闭；启用后通过 DSH 的 LLM 服务调用所选模型。
-- 浏览器只访问同源插件路由：`GET /plugins/dsh-newscope-news-ticker/news.json`、`POST /plugins/dsh-newscope-news-ticker/read-events` 和模型目录接口；Newscope 凭证和模型 Key 不会进入浏览器或会话。
+- **默认兼容未修改的原版 Newscope，不要求部署 fork 或新增 JSON API。** 原版路径为 RSS + 持久候选库，必要时按需读取 HTML 历史分页；候选缓存默认 5 分钟。
+- 插件**只查询 Newscope 已入库、已评分的文章，不抓源**；不调用抓源接口，不直接读取 Newscope SQLite，也不改变源管理、scheduler、正文抽取、评分、主题和反馈流程。HTML 解析只提取受限文章元数据，不执行页面代码，不保存正文。
+- 插件负责候选查询、评分/时效过滤、去重、持久曝光/已读、库存分层、四类曝光权重调度及 UI。不向会话写事件，不注册工具，不创建 Session。
+- 浏览器只访问同源插件路由：`GET /plugins/dsh-newscope-news-ticker/news.json`、`POST /plugins/dsh-newscope-news-ticker/read-events` 和模型目录；Newscope 凭证与模型 Key 不进入浏览器或会话。
 
-### 分页与受限 RSS 回退
+### 原版 RSS + 已知候选库 + 按需 HTML
 
-`GET /api/v1/articles` 接受 `min_score`（0–10）、`published_after`（RFC3339 排他时间下界）、`limit`（1–100）和 `cursor`；返回 `items` 与 `nextCursor`（null 表示耗尽）。元数据含字符串文章 ID、标题、URL、评分、时间、主题和 feed，不含正文或摘要。按发布时间、ID 严格倒序 keyset 分页，以首屏最大 ID 限制后续插入；签名游标绑定筛选条件，Newscope 重启后旧游标失效，需重新从首屏查询。插入高水位不是数据库快照，不冻结后续修改和删除。
+Host 先探测可选的 `GET /api/v1/articles`，仅 **首屏 404/405/501** 才判定当前不支持并走 RSS。该能力结果在内存缓存 **15 分钟**，到期后的查询可重新探测并自动升级；401/403/503、超时或畸形 JSON 不伪装成“不支持”，也不代表库存耗尽。`GET /api/v1/status` 仅用于可选健康/版本信息。
 
-Host 一次查询所有有效层所需的最宽超集，默认评分 ≥ 5、168 小时；每页 100 条，最多 50 页/5000 条，总 deadline 20 秒，每页最多 1 MiB、累计最多 10 MiB。**不再把 RSS 最新 100 条当作完整库存**；单份快照的语义去重/翻译准备仍最多处理 100 个候选，避免扩大 LLM 成本。
+RSS 使用最宽有效 L2 的 `min_score`（默认 5），按最宽时效（默认 168 小时）过滤，并把采集到的元数据合并进持久候选库。RSS 最新 100 条只是来源窗口，不是全部已知库存；**原版 RSS + 持久候选库可在已知库存内执行 L0/L1/L2 和已读重播**，不是 RSS 一律只有 L0。
 
-仅 API **首屏 404/405/501** 才回退 `/rss?min_score=...`。RSS 仍受最新 100 条窗口限制，并标记 `capabilities.history=false`：只用 L0，不支持完整历史放宽或已读重播。分页达到上限同样标记 `history=false`、`truncated=true`，保守只用 L0。超时、500、畸形响应属于查询失败，不能伪装成“不支持 API”或“高优先层已耗尽”。
+首次采集、当前未读低于低水位或已进入非 L0 档时，Host 可按需补读 `GET /articles?score=...&sort=published&page=N`。**HTML 参数是 `score`，不是 RSS/API 的 `min_score`。** 同一来源/最宽窗口的尝试至少间隔 **60 秒**，失败也计入节流。HTML 最多 **20 页、2000 个已扫描唯一 ID、每页 1 MiB、总计 8 MiB、8 秒**，同时受整个库存网络遍历 **20 秒**预算限制。
+
+未知结构、登录页、破损 HTML 不当作空库存。补读失败仍保留 RSS + 已知库并给出 warning；已验证部分页面后失败可保留其元数据并标注 partial。即使扫到页尾或时间窗口边界，也只是 **best-effort**：页码分页期间的并发插入/删除可能漏项，无法证明远端高档未读耗尽。远端删除/改分在本地旧缓存中可能滞后，直到重新观察或本地过期。
+
+### 持久候选库与可选 JSON API
+
+候选元数据文件 `candidate-inventory.json` 与 `read-state.json` 同目录，默认在 `${XDG_DATA_HOME:-~/.local/share}/dsh-newscope-news-ticker/`；独立保存文章元数据和 URL/API 身份别名，不复制正文或已读计数。**所有来源合计整文件最多 5000 条、20 MiB**；按文章发布时间保留 `min(31 天, max(8 天, 最宽有效窗口 + 24 小时))`，容量压力可更早淘汰旧候选。目录 0700、文件 0600，独立文件锁和原子替换。
+
+损坏/schema 不符/不可读等持久化故障显式返回 `candidate-state-unavailable`，不静默清空，不当作空库存，也不冒充 `read-state-unavailable`。应保留故障文件，由维护者明确恢复；重启遇远端故障时，合法持久候选可标记为 **stale known-local** 继续使用，并重新应用最新已读状态。`firstCollectedAt` 是本插件开始采集该来源的时间，**不是完整历史起点**。
+
+可选 `GET /api/v1/articles` 接受 `min_score`、RFC3339 排他时间下界 `published_after`、`limit`（1–100）和 `cursor`；返回 `items`、`nextCursor` 及不含正文/摘要的元数据。按发布时间/ID 倒序 keyset 分页并设插入高水位，不冻结并发修改/删除；签名游标在 Newscope 重启后失效。最多 **50 页/5000 条、每页 1 MiB、累计 10 MiB、20 秒**。
+
+**完整 JSON 查询窗口对本次响应权威**，不把旧本地候选并回而“复活”远端已删除文章；截断的部分遍历可在 known-local 范围内放宽/重播，但不能证明远端完整。语义去重/翻译准备仍限 100 个候选。详细契约见[原版兼容实现说明](<docs/original-newscope-compatibility.zh.md>)。
 
 ## 设置
 
@@ -54,16 +65,18 @@ Host 一次查询所有有效层所需的最宽超集，默认评分 ≥ 5、168
 
 **有效层不等于设置原值**：L1 相对有效 L0、L2 相对有效 L1，取两者更低评分和更长时效（分别 min/max）。放宽只能变宽或相等，永不收紧，也不回写、永久修改用户 L0。有效策略和当前快照状态不应与尚未保存的表单编辑混淆。
 
-1. 每份快照从 L0 重算：L0 有任何未读就不混 L1，L0 为零才进 L1，L1 也为零才进 L2。不能为了凑满 30 条提前降档。
+1. 每份快照在所报告范围内从 L0 重算；known-local 的“耗尽”仅针对本插件已收集候选，不是远端全集：L0 有任何未读就不混 L1，L0 为零才进 L1，L1 也为零才进 L2。不能为了凑满 30 条提前降档。
 2. 当前最高层未读低于 **10** 时可绕过候选 TTL 查询一次已有库存，单飞并默认 **30 秒**防抖；没有新增则恢复普通刷新节奏。已读消耗会请求替换快照，不会抓源。
 3. 仅到 L2 且未读不足目标 **30** 时，以已读补位；重播先选较高质量层，同层按 `lastShownAt` 最久未播放优先。显示 **↻ 重播** 和 `replay:true`；曝光只更新最近展示时间，不累计已读门槛、不清已读时间。
 4. 新 L0/L1 未读在下一快照优先于低层和重播。完全无候选时隐藏跑马灯，保留原生运行状态。四类权重全零仍不展示，重播也不能绕过。
 
 快照包含 `pool.tier`（L0/L1/L2/L2+replay/replay/empty）、`pool.effective`（当前评分/时效条件；空时为最宽已尝试条件）、`pool.unreadCount`（当前有效档完整候选未读数，**不是页面显示条数**）、目标/低水位、`capabilities`、`queriedAt`、`readVersion` 和 `exposureStates`。语义去重或翻译失败可能减少可展示条数，不能据此判定高档耗尽。
 
+状态新增 `inventoryScope`（`remote-window`/`known-local`）、`remoteWindowComplete`、`coverage`（`queried-window`/`best-effort`/`partial`/`rss-window`）、`localInventory`、`source`（`articles`/`rss`/`rss+html`/`local`）和按文本转义显示的 `warnings`。`history` 表示可用已知历史，而非远端完整性；`remoteWindowComplete=true` 仅代表完整 JSON 查询窗口，不是整个数据库恒定快照。可缺失的 `inventoryStore` 提供当前来源 `retainedCount`、`firstCollectedAt`、`updatedAt` 和本次全局淘汰数量 `pruned`（非布尔值）。旧响应缺字段显示未知，不推断完整；ticker 仅在 title/aria-label 附范围，不增加遮挡 badge。
+
 ## 故障与有界幂等
 
-- 查询失败时使用旧原始候选超集，但重新应用**最新已读状态**；无旧候选则 unavailable。失败不是空库存，不可作为提前放宽或重播的依据。
+- 查询失败可使用内存或持久旧候选并标注 stale，重新应用**最新已读状态**；无可用候选则 unavailable。放宽/重播只针对可用库存范围，故障本身不证明远端为空或高档耗尽。
 - 已读文件仅在缺失时初始化空历史；JSON/schema 损坏或权限错误返回 `read-state-unavailable`，绝不静默清空。文件锁串行化、原子写入成功后才确认；写入失败不形成假计数/假已读。异常退出遗留锁时明确超时，需维护者确认没有持有进程后人工处理，不自动抢锁。
 - 事件约每秒合批、单飞，每批最多 100 个、请求最多 64 KiB。网络/15 秒超时/429/5xx/无效 ACK 等可重试故障用原 eventId 退避，间隔上限 30 秒；同 ID 改 type/articleKey 整批 409。
 - 浏览器 pending 最多 1000 条，补交期限 24 小时，近期已发 ID 最多 5000 个。队列满、超期、终止性 4xx、关闭标签页或 Storage 不可用可能少计，但不能凭此制造已读。Storage 不可用只做内存重试；卸载 keepalive 不保证送达。
@@ -109,9 +122,9 @@ dsh plugin --profile web add 'git+https://github.com/<OWNER>/dsh-newscope-news-t
 
 ## 升级和卸载
 
-1. **任何替换之前先备份**当前 DSH/插件配置、持久已读文件、正在使用的程序/插件产物；Newscope schema 初始化前还应备份数据库。记录路径、版本和权限，确保可回退。源码目录不是运行数据备份，不要通过删除已读历史修复升级。
+1. **任何替换之前先备份**当前 DSH/插件配置、持久已读及候选库文件、正在使用的程序/插件产物；Newscope schema 初始化前还应备份数据库。记录路径、版本和权限，确保可回退。源码目录不是运行数据备份，不要通过删除已读历史修复升级。
 2. **先 web-dev 隔离验证**：独立 profile/专用 Session、已读数据目录和 Newscope 实例/数据库。仅换 profile 不会隔离默认已读路径，web-dev Host 应使用独立 `XDG_DATA_HOME`；不要将测试指向正式可写数据，也不要重复注册同名插件行和路由。
-3. Newscope 新 API 当前是**源码能力**：维护者必须 build 对应修订、替换目标程序并重启目标 Newscope 实例后才生效。先在数据库副本验证 schema/索引初始化。旧运行程序在升级前仍只提供受限 RSS，改源码不等于线上已有 API。
+3. **原版 RSS + 候选库 + HTML 兼容不要求部署 Newscope fork。** 新 JSON API 可选，若以后选择部署，需要单独获得明确授权，再 build/替换/重启目标 Newscope，并在隔离数据库副本检查 schema/索引；改源码不等于线上生效。开发验证不得读取生产数据库。
 4. 插件升级必须更新目标 **Host/插件安装及受影响的 Web 构建**，再刷新对应 GUI。只刷新浏览器不更新 Host，只更新 Host 也不能证明新客户端和设置已生效；未确认匹配的开发构建 watcher 运行时，不承诺热更新。
 5. 在 web-dev 实测真实滚动、三次独立曝光、刷新/重启持久性、后台/前台切换、安全移除、层级耗尽/恢复、重播标识、无新增、故障恢复及多标签页；检查请求，确认从未调用抓源接口。自动化 DOM/API 模拟不等于真实浏览器验收。
 6. **隔离验证后，再经用户明确确认正式发布**，才由维护者发布/安装新固定版本并操作正式服务。上面的 `v1.2.0` 只是安装 tag 示例，安装前需确认所选 tag 存在，不是本次 Unreleased 功能的发布声明；移除旧 bundle 前先完成备份。保留旧配置、程序和状态备份以便回退。

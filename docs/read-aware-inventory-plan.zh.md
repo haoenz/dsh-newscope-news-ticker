@@ -1,9 +1,13 @@
 # Newscope 跑马灯：持久已读与未读库存调度方案
 
 - 日期：2026-11-05
-- 状态：**A/B/C/D/E 已完成；150 项自动化测试与 17 项隔离真实浏览器检查通过，正式部署待验收结果确认**
+- 状态：**A/B/C/D/E 及原版兼容追加实现均完成；本轮 302 项自动化、8 项原版 HTTP、12 项真实 GUI 检查通过，正式部署待明确确认。阶段 E 的 150/17 为历史结果。**
 - 适用范围：`dsh-newscope-news-ticker` 与 Newscope 文章查询接口
 - 本文保留已确认设计；实现与未部署边界见 [阶段 A](<stage-a-read-state-delivery.zh.md>)、[阶段 B](<stage-b-browser-exposure-delivery.zh.md>)、[阶段 C/D](<stage-c-d-inventory-delivery.zh.md>)、[阶段 E](<stage-e-browser-acceptance.zh.md>)。
+
+## 原版兼容追加决策（2026-11-05 确认，11-06 实现）
+
+用户已接受默认原版 Newscope：RSS＋本地候选库，按需网页分页补齐，新 JSON API 仅作可选增强。以下原方案中“RSS 仅 L0／禁止重播、只有完整远端扫描才可放宽”的约束已被 **known-local 已知库存范围**替代：在已采集候选内执行相同优先级，不声称远端高档库存已耗尽；曝光与持久已读规则不变。当前实现与限制以[原版兼容说明](<original-newscope-compatibility.zh.md>)为准，原阶段记录是历史验收，不是本轮结果。
 
 ## 1. 已确认的产品决策
 

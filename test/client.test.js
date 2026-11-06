@@ -465,7 +465,8 @@ test('inventory settings default legacy configs without writing unedited or hidd
   for (const [key, value] of Object.entries(inventoryDefaults)) {
     assert.equal(container.querySelector('[data-setting="' + key + '"]').value, String(value));
   }
-  for (const key of ['service', 'stale', 'tier', 'unreadCount', 'replay', 'queriedAt']) assert.equal(status(key), '未知');
+  for (const key of ['service', 'stale', 'tier', 'unreadCount', 'replay', 'queriedAt',
+    'inventoryScope', 'coverage', 'remoteWindowComplete', 'localInventory', 'retainedCount', 'firstCollectedAt', 'updatedAt', 'pruned']) assert.equal(status(key), '未知');
   assert.match(status('effective'), /未知/);
   assert.match(status('capabilities'), /未知/);
   await edit('minScore', 8);
@@ -565,6 +566,121 @@ test('inventory status reflects tiers, true zero, replay, stale and capability w
   assert.ok(calls.every(({ url }) => !url.includes('/fetch') && !url.includes('read-events')));
 });
 
+test('known-local RSS and HTML inventory expose scope, store metadata and limited coverage without disabling tiers', async (t) => {
+  payload = { ...inventoryPayload('L2+replay'),
+    capabilities: { inventoryScope: 'known-local', remoteWindowComplete: false, coverage: 'rss-window',
+      localInventory: true, source: 'rss', history: true, truncated: false },
+    inventoryStore: { retainedCount: 120, firstCollectedAt: '2026-11-01T10:00:00.000Z', updatedAt: '2026-11-05T12:00:00.000Z', pruned: 12 } };
+  const { status, container, refresh } = await mountSettings(t);
+  for (const key of ['inventoryScope', 'coverage', 'remoteWindowComplete', 'localInventory']) {
+    assert.equal(status(key), String(payload.capabilities[key]));
+  }
+  for (const key of ['retainedCount', 'firstCollectedAt', 'updatedAt', 'pruned']) {
+    assert.equal(status(key), String(payload.inventoryStore[key]));
+  }
+  assert.equal(status('tier'), 'L2+replay');
+  assert.match(container.textContent, /首次采集时间（不是完整历史起点）/);
+  assert.match(container.textContent, /放宽与重播仅针对本插件已收集候选，无法证明远端高档未读耗尽/);
+  assert.ok(container.querySelector('[data-newscope-warning="rss"]').textContent.includes('L0/L1/L2 与重播'));
+  assert.equal(container.querySelector('[data-newscope-warning="history"]'), null);
+  assert.equal(container.querySelector('[data-newscope-warning="remote-window"]'), null);
+  payload.capabilities.source = 'rss+html';
+  payload.capabilities.coverage = 'best-effort';
+  await refresh();
+  assert.equal(status('coverage'), 'best-effort');
+  assert.ok(container.querySelector('[data-newscope-warning="rss"]'));
+  assert.match(container.querySelector('[data-newscope-warning="best-effort"]').textContent, /页码分页.*并发.*漏项/);
+  payload.capabilities.coverage = 'partial';
+  payload.capabilities.truncated = true;
+  payload.inventoryStore.retainedCount = 0;
+  payload.inventoryStore.pruned = 0;
+  await refresh();
+  assert.equal(status('retainedCount'), '0');
+  assert.equal(status('pruned'), '0');
+  assert.equal(status('coverage'), 'partial');
+  assert.match(container.querySelector('[data-newscope-warning="partial"]').textContent, /覆盖不完整/);
+  assert.match(container.querySelector('[data-newscope-warning="truncated"]').textContent, /已截断/);
+  assert.equal(container.querySelector('[data-newscope-warning="best-effort"]'), null);
+});
+
+test('candidate store counts accept only nonnegative integers', async (t) => {
+  payload = { ...inventoryPayload(), inventoryStore: { retainedCount: 42, pruned: 5 } };
+  const { status, container, refresh } = await mountSettings(t, DEFAULT_CONFIG, 'en');
+  assert.equal(status('retainedCount'), '42');
+  assert.equal(status('pruned'), '5');
+  assert.match(container.textContent, /Retained candidates for this source/);
+  assert.match(container.textContent, /Candidates pruned globally in this operation/);
+  for (const invalid of [true, false, -1, 0.5, '5', null]) {
+    payload.inventoryStore = { retainedCount: invalid, pruned: invalid };
+    await refresh();
+    assert.equal(status('retainedCount'), 'Unknown');
+    assert.equal(status('pruned'), 'Unknown');
+  }
+});
+
+test('remote completeness is limited to the queried JSON window and missing legacy fields stay unknown', async (t) => {
+  payload = { ...inventoryPayload(), capabilities: { inventoryScope: 'remote-window', remoteWindowComplete: true,
+    coverage: 'queried-window', localInventory: true, source: 'articles', history: true, truncated: false } };
+  const { status, container, refresh } = await mountSettings(t, DEFAULT_CONFIG, 'en');
+  assert.equal(status('inventoryScope'), 'remote-window');
+  assert.equal(status('remoteWindowComplete'), 'true');
+  assert.equal(status('coverage'), 'queried-window');
+  assert.equal(status('retainedCount'), 'Unknown');
+  assert.equal(status('firstCollectedAt'), 'Unknown');
+  assert.match(container.querySelector('[data-newscope-warning="remote-window"]').textContent, /not a fixed snapshot of the entire database/);
+  assert.match(container.textContent, /history describes available known history, not remote completeness/);
+  payload = inventoryPayload();
+  await refresh();
+  for (const key of ['inventoryScope', 'coverage', 'remoteWindowComplete', 'localInventory',
+    'retainedCount', 'firstCollectedAt', 'updatedAt', 'pruned']) assert.equal(status(key), 'Unknown');
+  assert.equal(container.querySelector('[data-newscope-warning="remote-window"]'), null);
+  payload.capabilities = { history: false, source: 'rss+html', truncated: false };
+  await refresh();
+  assert.match(container.querySelector('[data-newscope-warning="history"]').textContent, /legacy response compatible/);
+  assert.ok(container.querySelector('[data-newscope-warning="rss"]'));
+  assert.doesNotMatch(container.textContent, /only the standard tier is reliable|replay (?:is )?disabled/i);
+  assert.equal(status('remoteWindowComplete'), 'Unknown');
+  payload.capabilities = { inventoryScope: 'known-local', coverage: 'best-effort', source: 'rss+html' };
+  await refresh();
+  assert.match(container.querySelector('[data-newscope-warning="known-local"]').textContent, /only to candidates collected by this plugin/);
+  assert.match(container.querySelector('[data-newscope-warning="best-effort"]').textContent, /concurrent changes during page-number pagination may cause missed items/);
+  payload.capabilities.coverage = 'partial';
+  await refresh();
+  assert.match(container.querySelector('[data-newscope-warning="partial"]').textContent, /Coverage is partial/);
+});
+
+test('host warning strings and status dangertext render as escaped React text only', async (t) => {
+  const danger = '<img src=x onerror=alert(1)><script>alert(2)</script>&"';
+  payload = { ...inventoryPayload(), warnings: [danger, 'partial: <b>not complete</b>', null, { message: danger }, 7],
+    capabilities: { ...inventoryPayload().capabilities, inventoryScope: danger, coverage: danger, source: danger },
+    inventoryStore: { retainedCount: 7, firstCollectedAt: danger, updatedAt: danger, pruned: 0 } };
+  const { status, container, refresh } = await mountSettings(t);
+  assert.equal(status('warnings'), danger + 'partial: <b>not complete</b>');
+  assert.equal(container.querySelectorAll('[data-newscope-status="warnings"] li').length, 2);
+  for (const key of ['inventoryScope', 'coverage', 'firstCollectedAt', 'updatedAt']) assert.equal(status(key), danger);
+  assert.equal(container.querySelector('img, script, b'), null);
+  assert.match(container.querySelector('[data-newscope-status="warnings"]').innerHTML, /&lt;img/);
+  payload.warnings = danger;
+  await refresh();
+  assert.equal(status('warnings'), undefined, 'only a string array is accepted');
+});
+
+for (const locale of ['zh', 'en']) test('candidate persistence failure is distinct from read-state failure (' + locale + ')', async (t) => {
+  payload = inventoryPayload();
+  const { status, refresh } = await mountSettings(t, DEFAULT_CONFIG, locale);
+  globalThis.fetch = async () => Response.json({ service: 'candidate-state-unavailable' }, { status: 503 });
+  await refresh();
+  assert.equal(status('service'), 'candidate-state-unavailable');
+  assert.match(status('error'), /^candidate-state-unavailable/);
+  assert.match(status('error'), locale === 'zh' ? /候选持久化不可用，这不是空库存/ : /persistent candidate storage is unavailable; this is not an empty inventory/);
+  assert.equal(status('retainedCount'), locale === 'zh' ? '未知' : 'Unknown');
+  assert.equal(status('unreadCount'), locale === 'zh' ? '未知' : 'Unknown');
+  globalThis.fetch = async () => Response.json({ service: 'read-state-unavailable' }, { status: 503 });
+  await refresh();
+  assert.match(status('error'), /^read-state-unavailable/);
+  assert.doesNotMatch(status('error'), /candidate-state-unavailable/);
+});
+
 test('inventory errors are explicit, escaped and not presented as empty stock; English labels exist', async (t) => {
   payload = inventoryPayload();
   const { status, refresh, container } = await mountSettings(t, DEFAULT_CONFIG, 'en');
@@ -644,9 +760,11 @@ test('inventory status polling is bounded, single flight, abortable and ignores 
 
 test('ticker tier metadata uses only title and aria-label, with no viewport badge', async () => {
   payload = inventoryPayload('L1');
+  payload.capabilities.inventoryScope = 'known-local';
   await start();
   const ticker = document.querySelector('[data-newscope-ticker]');
   assert.match(ticker.title, /L1/);
+  assert.match(ticker.title, /库存范围: known-local/);
   assert.equal(ticker.getAttribute('aria-label'), ticker.title);
   assert.equal(ticker.children.length, 1, 'track remains the only viewport child');
   assert.ok(ticker.firstElementChild.hasAttribute('data-newscope-track'));

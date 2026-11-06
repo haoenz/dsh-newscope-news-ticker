@@ -44,6 +44,7 @@
     "README.md",
     "README.zh.md",
     "VERIFICATION.zh.md",
+    "docs/*.md",
     "CHANGELOG.md",
     "LICENSE"
   ],
@@ -52,13 +53,16 @@
     "test:host": "node --test test/host.test.js",
     "test:client": "node --test test/client.test.js",
     "test:browser": "node test/browser-acceptance.mjs",
+    "test:original:http": "node test/original-server-acceptance.mjs",
+    "test:original:browser": "node test/browser-original-acceptance.mjs",
     "check": "node --check lib/index.js && node --check client.js"
   },
   "dependencies": {
     "@deepseek-ai/dsh-api-session-controller": "0.2.1-rc.3",
     "@deepseek-ai/schemastery": "^3.18.5",
     "entities": "^9.0.0",
-    "fast-xml-parser": "^5.3.4"
+    "fast-xml-parser": "^5.3.4",
+    "parse5": "^8.1.0"
   },
   "devDependencies": {
     "jsdom": "^27.1.0",

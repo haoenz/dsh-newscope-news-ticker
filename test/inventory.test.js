@@ -222,7 +222,7 @@ test('explicit replay flags override stale input flags without changing input/st
   assert.equal(states.r.exposures, 3);
 });
 
-test('restricted RSS mode returns only L0 unread, never relaxed tiers or replay', () => {
+test('explicitly unavailable history returns only L0 unread, never relaxed tiers or replay', () => {
   const articles = [article('u'), article('read'), article('l1', 6), article('l2', 5)];
   const states = { read: readState() };
   const result = select(articles, states, {}, { history: false });

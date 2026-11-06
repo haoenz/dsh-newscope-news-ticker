@@ -483,14 +483,16 @@ window.__ModuleLoader__.load({
         this.root.setAttribute('role', 'region');
         this.root.setAttribute('aria-label', t('ariaLabel'));
         this.root.setAttribute('aria-live', 'off');
-        if (host.hasAttribute('data-slot')) this.root.dataset.newscopeIdle = '';
+        if (target.hasAttribute('data-composer-card')) this.root.dataset.newscopeIdle = '';
         this.track = document.createElement('div');
         this.track.className = 'dsh-newscope-track';
         this.track.dataset.newscopeTrack = '';
         this.root.appendChild(this.track);
         host.insertBefore(this.root, target === host ? host.firstChild : target);
-        host.classList.add('dsh-newscope-running');
-        if (target !== host) target.classList.add('dsh-newscope-running-content');
+        if (host.hasAttribute('data-chat-running')) {
+          host.classList.add('dsh-newscope-running');
+          if (target !== host) target.classList.add('dsh-newscope-running-content');
+        }
         this.onEnter = () => { if (this.config.pauseOnHover) { this.hover = true; this.syncPause(); } };
         this.onLeave = () => { this.hover = false; this.syncPause(); };
         this.onFocus = () => { this.focus = true; this.syncPause(); };
@@ -1519,8 +1521,14 @@ window.__ModuleLoader__.load({
           }
           const desired = new Map();
           for (const row of runningRows) desired.set(row, row.querySelector('[class*="runningContent"]') || row);
-          const addDocks = () => {
-            for (const dock of document.querySelectorAll('[data-slot="conversation.composer.dock"]')) desired.set(dock, dock);
+          const addComposerTickers = () => {
+            for (const slot of document.querySelectorAll('[data-slot="conversation.composer.dock"]')) {
+              // The official dock sits BELOW the input card and holds usage/context pills.
+              // Mount beside the card instead so the ticker appears above the composer.
+              const host = slot.closest('[data-composer-dock]')?.parentElement;
+              const target = host?.querySelector(':scope > [data-composer-card]');
+              if (host && target) desired.set(host, target);
+            }
           };
           if (config.displayMode !== 'running') {
             idleStartedAt = 0;
@@ -1530,13 +1538,13 @@ window.__ModuleLoader__.load({
             if (config.runningIdleBehavior === 'pause') {
               idleStartedAt = 0;
               clearIdleHide();
-              addDocks();
+              addComposerTickers();
             } else if (config.runningIdleBehavior === 'delay') {
               if (!idleStartedAt) idleStartedAt = Date.now();
               const seconds = Math.max(1, Math.min(300, Number(config.runningIdleDelaySeconds) || 5));
               const deadline = idleStartedAt + seconds * 1000;
               if (Date.now() < deadline) {
-                addDocks();
+                addComposerTickers();
                 armIdleHide(deadline);
               } else {
                 hadRunning = false;
@@ -1549,7 +1557,7 @@ window.__ModuleLoader__.load({
               clearIdleHide();
             }
           }
-          if (config.displayMode === 'always' && !hasRunning) addDocks();
+          if (config.displayMode === 'always' && !hasRunning) addComposerTickers();
           for (const [host, controller] of controllers) {
             if (!desired.has(host) || !host.isConnected) { controller.dispose(); controllers.delete(host); }
           }
@@ -1559,7 +1567,7 @@ window.__ModuleLoader__.load({
             else controllers.set(host, new TickerController(host, target, latest.items, config, t, playback, readEvents, submitFeedback));
             // Metadata only: no overlay in the clipping viewport or exposure geometry changes.
             const controller = controllers.get(host);
-            const idlePaused = host.hasAttribute('data-slot') && config.displayMode === 'running' && config.runningIdleBehavior === 'pause';
+            const idlePaused = controller.root.hasAttribute('data-newscope-idle') && config.displayMode === 'running' && config.runningIdleBehavior === 'pause';
             if (controller.idlePaused !== idlePaused) {
               controller.idlePaused = idlePaused;
               controller.syncPause();

@@ -34,6 +34,10 @@ pnpm run check
 
 Open **Settings → Newscope News Ticker**, or use the package/row configuration on the installed Plugins page. Valid changes are saved automatically and applied immediately; there is no Save button. **Show news ticker** has three levels: **Off**, **While Agent is running**, and **Always**. Always additionally mounts the ticker above the composer while idle. The setting is stored as the single `displayMode` field; the former two boolean fields are intentionally removed during development.
 
+### When a running-only ticker becomes idle
+
+For `displayMode=running`, `runningIdleBehavior` selects **hide immediately (`hide`, default)**, **hide after a delay (`delay`)**, or **stay visible but stop scrolling (`pause`)**. `runningIdleDelaySeconds` accepts 1–300 seconds and defaults to 5. Delay mode moves the ticker above the composer and keeps scrolling until the deadline. Pause mode leaves a static ticker only after an actual run and resumes on the next run; initial idle alone does not create one.
+
 ### Newscope feedback
 
 Hover or keyboard-focus an article to reveal 👍 / 👎; controls remain visible on touch devices. A same-origin Host route resolves `articleKey` to the candidate's numeric `newscopeId` and calls the original `POST /api/v1/feedback/{id}/like|dislike` endpoint. RSS-only articles without a resolved ID expose disabled controls with an explanation. Newscope's native feedback updates score and preferences. Successful feedback also persists a `manual` read on the Host with zero required exposures; the client retires it only after validating the read acknowledgement. Failed feedback or read-state persistence never fabricates a read. Current/pending actions are disabled, concurrent identical operations share one upstream write, and successful state is retained in candidate metadata or read from original HTML active states. No source feed fetch is triggered.

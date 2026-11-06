@@ -3,6 +3,8 @@
       name: dsh-newscope-news-ticker
       config:
         displayMode: running
+        runningIdleBehavior: hide
+        runningIdleDelaySeconds: 5
         newscopeUrl: http://127.0.0.1:8080
         minScore: 7
         maxAgeHours: 48

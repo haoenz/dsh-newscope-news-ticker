@@ -35,6 +35,10 @@ RSS 使用最宽有效 L2 的 `min_score`（默认 5），按最宽时效（默�
 
 安装后可在 DSH 左侧 **设置 → Newscope 新闻跑马灯** 中配置，也可进入 **插件 → 已安装 → Newscope 新闻跑马灯**，在插件包详情页或 `newscope-news-ticker` 行配置页修改。所有常用项均通过 DSH `configForms` 读写，有效修改会自动保存并立即生效，无需点击保存。讯息滚动通过单一 `displayMode` 配置分为 **关闭、运行时显示、总是显示** 三级，破坏性移除原来的两个布尔字段：关闭时不显示跑马灯；运行时显示仅使用 Agent 状态行；总是显示还会在空闲时显示于输入框上方。标题区只显示新闻标题，不显示分类和来源；已读重播另有明确标记。
 
+### 模型停止后的表现
+
+仅当 `displayMode=running` 时显示该设置。`runningIdleBehavior` 提供 **立即消失（hide，默认）、延迟后消失（delay）、不消失但停止滚动（pause）** 三种行为。延迟秒数由 `runningIdleDelaySeconds` 控制，范围 1–300、默认 5；延迟期间讯息移至输入框上方并继续滚动，到期后消失。pause 会在一次运行结束后留下静态讯息，下一次运行时恢复滚动；页面初始空闲且尚未经历运行时不会显示。
+
 ### 点赞与点踩
 
 悬停或键盘聚焦新闻后显示 👍 / 👎；触屏设备上控件保持可见。按钮请求同源 `POST /plugins/dsh-newscope-news-ticker/feedback`，Host 根据 `articleKey` 在候选库中反查文章并调用原版 Newscope 的 `/api/v1/feedback/{id}/like|dislike`，浏览器不能任意指定数字 ID。纯 RSS 条目尚未取得 `newscopeId` 时按钮禁用并说明原因。

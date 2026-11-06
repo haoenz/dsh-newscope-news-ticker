@@ -32,6 +32,7 @@ window.__ModuleLoader__.load({
       ['inventory.level2.minScore', 0, 10, 5, false],
       ['inventory.level2.maxAgeHours', 1, 720, 168, false],
     ];
+    const NUMERIC_FIELDS = [...INVENTORY_FIELDS, ['runningIdleDelaySeconds', 1, 300, 5, true]];
     const atPath = (value, path) => path.reduce((current, key) => current?.[key], value);
     function setPath(value, path, next) {
       let target = value;
@@ -39,7 +40,7 @@ window.__ModuleLoader__.load({
       target[path[path.length - 1]] = next;
     }
     const CONFIG_KEYS = [
-      'displayMode', 'newscopeUrl', 'managementUrl', 'minScore', 'maxAgeHours', 'refreshMinutes',
+      'displayMode', 'runningIdleBehavior', 'runningIdleDelaySeconds', 'newscopeUrl', 'managementUrl', 'minScore', 'maxAgeHours', 'refreshMinutes',
       'weights', 'scrollSpeed', 'pauseOnHover', 'openInNewTab',
       'translationEnabled', 'translationModel', 'semanticDedupEnabled', 'semanticDedupModel',
       'topicMap', 'sourceMap',
@@ -469,6 +470,7 @@ window.__ModuleLoader__.load({
         this.retiring = new Map();
         this.feedbackPending = new Map();
         this.feedbackErrors = new Set();
+        this.idlePaused = false;
         this.hover = false;
         this.focus = false;
         this.disposed = false;
@@ -507,7 +509,7 @@ window.__ModuleLoader__.load({
       }
 
       syncPause() {
-        const paused = this.hover || this.focus;
+        const paused = this.hover || this.focus || this.idlePaused;
         if (this.root.dataset.paused !== String(paused)) {
           this.root.dataset.paused = String(paused);
           this.lastFrame = 0;
@@ -743,7 +745,7 @@ window.__ModuleLoader__.load({
           const elapsed = this.lastFrame ? Math.min(100, Math.max(0, time - this.lastFrame)) : 0;
           this.lastFrame = time;
           const peers = this.playback.controllers || [this];
-          const paused = peers.some((controller) => controller.hover || controller.focus);
+          const paused = peers.some((controller) => controller.hover || controller.focus || controller.idlePaused);
           if (this.clockOwner && !paused && !document.hidden && this.groupWidth > 0) {
             const speed = SPEEDS[this.config.scrollSpeed] || SPEEDS.medium;
             const advanced = this.position + elapsed * speed / 1000;
@@ -880,6 +882,9 @@ window.__ModuleLoader__.load({
       for (const category of CATEGORIES) result.weights[category] = boundedNumber(draft.weights?.[category], 0, 1000);
       for (const key of ['topicMap', 'sourceMap']) result[key] = mappingValue(draft[key]);
       if (!['off', 'running', 'always'].includes(result.displayMode)) throw new Error('Invalid display mode');
+      if (!['hide', 'delay', 'pause'].includes(result.runningIdleBehavior)) throw new Error('Invalid running idle behavior');
+      result.runningIdleDelaySeconds = boundedNumber(result.runningIdleDelaySeconds, 1, 300);
+      if (!Number.isInteger(result.runningIdleDelaySeconds)) throw new Error('Expected an integer delay');
       if (!['slow', 'medium', 'fast'].includes(result.scrollSpeed)) throw new Error('Invalid scroll speed');
       for (const key of ['newscopeUrl', 'managementUrl']) {
         if (!result[key]) continue;
@@ -1125,7 +1130,7 @@ window.__ModuleLoader__.load({
       const input = (path, label, type = 'text', hint) => {
         const key = Array.isArray(path) ? path : [path];
         const value = key.reduce((current, part) => current?.[part], draft);
-        const bounds = INVENTORY_FIELDS.find(([name]) => name === key.join('.'));
+        const bounds = NUMERIC_FIELDS.find(([name]) => name === key.join('.'));
         return h(SettingsField, { label, hint }, h('input', {
           type, value: value ?? '', disabled, 'data-setting': key.join('.'),
           ...(bounds ? { min: bounds[1], max: key.join('.') === 'inventory.lowWatermark' ? draft.inventory.targetInventory : bounds[2], step: bounds[4] ? 1 : 'any' } : {}),
@@ -1186,6 +1191,13 @@ window.__ModuleLoader__.load({
               },
                 ...['off', 'running', 'always'].map((mode) =>
                   h('option', { key: mode, value: mode }, t(`settings.mode.${mode}`))))),
+            draft.displayMode === 'running' ? h(SettingsField, { label: t('settings.runningIdleBehavior'), hint: t('settings.runningIdleBehaviorHint'), wide: true },
+              h('select', {
+                value: draft.runningIdleBehavior || 'hide', disabled, 'data-setting': 'runningIdleBehavior',
+                onChange: (event) => edit(['runningIdleBehavior'], event.target.value),
+              }, ...['hide', 'delay', 'pause'].map((behavior) => h('option', { key: behavior, value: behavior }, t(`settings.idleBehavior.${behavior}`))))) : null,
+            draft.displayMode === 'running' && draft.runningIdleBehavior === 'delay'
+              ? input('runningIdleDelaySeconds', t('settings.runningIdleDelaySeconds'), 'number') : null,
             h(SettingsField, { label: t('settings.scrollSpeed') }, h('select', {
               value: draft.scrollSpeed || 'medium', disabled, 'data-setting': 'scrollSpeed',
               onChange: (event) => edit(['scrollSpeed'], event.target.value),
@@ -1266,6 +1278,9 @@ window.__ModuleLoader__.load({
                   display: 'Display', scrollSpeed: 'Scroll speed',
                   displayMode: 'Show news ticker', displayModeHint: 'Off hides it everywhere. While running uses the Agent status row. Always also shows it above the composer while idle.',
                   mode: { off: 'Off', running: 'While Agent is running', always: 'Always' },
+                  runningIdleBehavior: 'When the model stops', runningIdleBehaviorHint: 'Only for While Agent is running. Delay keeps scrolling above the composer before hiding; Keep paused leaves a static ticker above the composer after a run.',
+                  idleBehavior: { hide: 'Disappear immediately', delay: 'Disappear after a delay', pause: 'Stay visible but stop scrolling' },
+                  runningIdleDelaySeconds: 'Delay before disappearing (seconds)',
                   speed: { slow: 'Slow', medium: 'Medium', fast: 'Fast' },
                   pauseOnHover: 'Pause on hover or keyboard focus', openInNewTab: 'Open articles in a new tab',
                   weights: 'Category exposure weights',
@@ -1332,6 +1347,9 @@ window.__ModuleLoader__.load({
                   display: '展示', scrollSpeed: '滚动速度',
                   displayMode: '讯息滚动显示', displayModeHint: '关闭时完全不显示；运行时显示仅使用 Agent 状态行；总是显示还会在空闲时显示于输入框上方。',
                   mode: { off: '关闭', running: '运行时显示', always: '总是显示' },
+                  runningIdleBehavior: '模型停止后的讯息表现', runningIdleBehaviorHint: '仅用于“运行时显示”。延迟期间在输入框上方继续滚动；保留但停止滚动会在一次运行结束后留下静态讯息。',
+                  idleBehavior: { hide: '立即消失', delay: '延迟后消失', pause: '不消失但停止滚动' },
+                  runningIdleDelaySeconds: '延迟消失时间（秒）',
                   speed: { slow: '慢', medium: '中', fast: '快' },
                   pauseOnHover: '悬停或键盘聚焦时暂停', openInNewTab: '在新标签页打开原文',
                   weights: '分类曝光权重',
@@ -1402,6 +1420,10 @@ window.__ModuleLoader__.load({
         let refillRequested = false;
         let refreshTimer = null;
         let currentRefreshMs = 300000;
+        let hadRunning = false;
+        let idleStartedAt = 0;
+        let idleHideTimer = null;
+        let idleTimerDeadline = 0;
         const observer = new MutationObserver(() => sync());
 
         function applyConfirmedRead(readKeys) {
@@ -1466,18 +1488,68 @@ window.__ModuleLoader__.load({
           }
           return result;
         }
+        function clearIdleHide() {
+          if (idleHideTimer !== null) window.clearTimeout(idleHideTimer);
+          idleHideTimer = null;
+          idleTimerDeadline = 0;
+        }
+        function armIdleHide(deadline) {
+          if (idleHideTimer !== null && idleTimerDeadline === deadline) return;
+          clearIdleHide();
+          idleTimerDeadline = deadline;
+          idleHideTimer = window.setTimeout(() => { idleHideTimer = null; idleTimerDeadline = 0; sync(); }, Math.max(0, deadline - Date.now()));
+        }
         function sync() {
           if (disposed) return;
           const config = latest.config;
           const hasPlaybackItems = latest.items.length || [...controllers.values()].some((controller) => controller.items.length);
-          if (config.displayMode === 'off' || !hasPlaybackItems) { detachAll(); return; }
+          if (config.displayMode === 'off' || !hasPlaybackItems) {
+            hadRunning = false;
+            idleStartedAt = 0;
+            clearIdleHide();
+            detachAll();
+            return;
+          }
+          const runningRows = [...document.querySelectorAll('[data-chat-running]')];
+          const hasRunning = runningRows.length > 0;
+          if (hasRunning) {
+            hadRunning = true;
+            idleStartedAt = 0;
+            clearIdleHide();
+          }
           const desired = new Map();
-          for (const row of document.querySelectorAll('[data-chat-running]')) {
-            desired.set(row, row.querySelector('[class*="runningContent"]') || row);
-          }
-          if (config.displayMode === 'always' && !document.querySelector('[data-chat-running]')) {
+          for (const row of runningRows) desired.set(row, row.querySelector('[class*="runningContent"]') || row);
+          const addDocks = () => {
             for (const dock of document.querySelectorAll('[data-slot="conversation.composer.dock"]')) desired.set(dock, dock);
+          };
+          if (config.displayMode !== 'running') {
+            idleStartedAt = 0;
+            clearIdleHide();
           }
+          if (!hasRunning && config.displayMode === 'running' && hadRunning) {
+            if (config.runningIdleBehavior === 'pause') {
+              idleStartedAt = 0;
+              clearIdleHide();
+              addDocks();
+            } else if (config.runningIdleBehavior === 'delay') {
+              if (!idleStartedAt) idleStartedAt = Date.now();
+              const seconds = Math.max(1, Math.min(300, Number(config.runningIdleDelaySeconds) || 5));
+              const deadline = idleStartedAt + seconds * 1000;
+              if (Date.now() < deadline) {
+                addDocks();
+                armIdleHide(deadline);
+              } else {
+                hadRunning = false;
+                idleStartedAt = 0;
+                clearIdleHide();
+              }
+            } else {
+              hadRunning = false;
+              idleStartedAt = 0;
+              clearIdleHide();
+            }
+          }
+          if (config.displayMode === 'always' && !hasRunning) addDocks();
           for (const [host, controller] of controllers) {
             if (!desired.has(host) || !host.isConnected) { controller.dispose(); controllers.delete(host); }
           }
@@ -1486,7 +1558,13 @@ window.__ModuleLoader__.load({
             if (existing) existing.update(latest.items, config);
             else controllers.set(host, new TickerController(host, target, latest.items, config, t, playback, readEvents, submitFeedback));
             // Metadata only: no overlay in the clipping viewport or exposure geometry changes.
-            const root = controllers.get(host).root;
+            const controller = controllers.get(host);
+            const idlePaused = host.hasAttribute('data-slot') && config.displayMode === 'running' && config.runningIdleBehavior === 'pause';
+            if (controller.idlePaused !== idlePaused) {
+              controller.idlePaused = idlePaused;
+              controller.syncPause();
+            }
+            const root = controller.root;
             const label = latest.inventoryLabel || t('ariaLabel');
             if (root.title !== label) root.title = label;
             if (root.getAttribute('aria-label') !== label) root.setAttribute('aria-label', label);
@@ -1568,6 +1646,7 @@ window.__ModuleLoader__.load({
             window.removeEventListener('pagehide', onPageHide);
             playback.persist(true);
             if (refreshTimer !== null) window.clearInterval(refreshTimer);
+            clearIdleHide();
             readEvents.shutdown();
             detachAll();
             style.remove();

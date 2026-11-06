@@ -321,6 +321,81 @@ test('always display mode immediately mounts and removes the idle composer ticke
   assert.equal(document.querySelector('[data-newscope-ticker]'), null, 'Off must remove the idle ticker immediately');
 });
 
+test('running display keeps the current immediate-hide behavior by default', async () => {
+  payload = basePayload();
+  await start();
+  document.querySelector('[data-chat-running]').remove();
+  document.body.insertAdjacentHTML('beforeend', '<div data-slot="conversation.composer.dock"><span>composer</span></div>');
+  await flush();
+  assert.equal(document.querySelector('[data-newscope-ticker]'), null);
+});
+
+test('delayed hide keeps scrolling above the composer and disappears at the deadline', async (t) => {
+  payload = basePayload();
+  const configuration = createConfiguration({ ...DEFAULT_CONFIG, runningIdleBehavior: 'delay', runningIdleDelaySeconds: 5 });
+  await start({ configuration });
+  const timers = new Map();
+  let nextTimer = 1000;
+  const originalSetTimeout = window.setTimeout;
+  const originalClearTimeout = window.clearTimeout;
+  const originalNow = Date.now;
+  window.setTimeout = (fn, delay) => { const id = nextTimer++; timers.set(id, { fn, delay }); return id; };
+  window.clearTimeout = (id) => { timers.delete(id); originalClearTimeout(id); };
+  t.after(() => {
+    window.setTimeout = originalSetTimeout;
+    window.clearTimeout = originalClearTimeout;
+    Date.now = originalNow;
+  });
+
+  document.querySelector('[data-chat-running]').remove();
+  document.body.insertAdjacentHTML('beforeend', '<div data-slot="conversation.composer.dock"><span>composer</span></div>');
+  await flush();
+  const dock = document.querySelector('[data-slot="conversation.composer.dock"]');
+  const ticker = dock.querySelector('[data-newscope-ticker]');
+  assert.ok(ticker, 'the running ticker moves to the composer during the grace period');
+  assert.equal(ticker.dataset.paused, 'false');
+  const timer = [...timers.values()].find((entry) => entry.delay === 5000);
+  assert.ok(timer, 'the configured five-second hide timer is armed');
+  frame(1000);
+  frame(1016);
+  assert.match(ticker.querySelector('[data-newscope-track]').style.transform, /-0\.72px/, 'delay mode continues scrolling');
+  Date.now = () => originalNow() + 5000;
+  timer.fn();
+  assert.equal(document.querySelector('[data-newscope-ticker]'), null);
+});
+
+test('keep-paused applies only after a run, stays static while idle and resumes on the next run', async () => {
+  document.body.innerHTML = '<div data-slot="conversation.composer.dock"><span>composer</span></div>';
+  payload = basePayload();
+  const configuration = createConfiguration({ ...DEFAULT_CONFIG, runningIdleBehavior: 'pause' });
+  await start({ running: false, configuration });
+  assert.equal(document.querySelector('[data-newscope-ticker]'), null, 'initial idle alone must not create a ticker');
+
+  document.body.insertAdjacentHTML('beforeend', '<div data-chat-running><span class="runningContent"><span class="runningText">running</span></span></div>');
+  await flush();
+  assert.ok(document.querySelector('[data-chat-running] [data-newscope-ticker]'));
+  document.querySelector('[data-chat-running]').remove();
+  await flush();
+  const idle = document.querySelector('[data-slot="conversation.composer.dock"] [data-newscope-ticker]');
+  assert.ok(idle, 'the completed run leaves a ticker above the composer');
+  assert.equal(idle.dataset.paused, 'true');
+  const track = idle.querySelector('[data-newscope-track]');
+  const initialTransform = track.style.transform;
+  frame(1000);
+  frame(1016);
+  assert.equal(track.style.transform, initialTransform, 'idle pause must not advance the track');
+
+  document.body.insertAdjacentHTML('beforeend', '<div data-chat-running><span class="runningContent"><span class="runningText">next run</span></span></div>');
+  await flush();
+  const running = document.querySelector('[data-chat-running] [data-newscope-ticker]');
+  assert.ok(running);
+  assert.equal(document.querySelector('[data-newscope-idle]'), null);
+  assert.equal(running.dataset.paused, 'false');
+  frame(2000);
+  frame(2016);
+  assert.match(running.querySelector('[data-newscope-track]').style.transform, /-0\.72px/, 'the next run resumes scrolling');
+});
+
 test('translated Chinese title is shown without leaking the original English title', async () => {
   payload = basePayload();
   payload.items = [{
@@ -584,6 +659,32 @@ test('automatic settings serialize rapid edits and use each newly accepted revis
     { ops: [{ op: 'set', path: ['scrollSpeed'], value: 'slow' }], expectedRevision: 8 },
   ]);
   assert.equal(configuration.getSnapshot().value.scrollSpeed, 'slow');
+});
+
+test('running idle settings are conditional, validated and automatically saved', async (t) => {
+  payload = basePayload();
+  const { configuration, container, edit } = await mountSettings(t);
+  const behavior = container.querySelector('[data-setting="runningIdleBehavior"]');
+  assert.ok(behavior);
+  assert.equal(behavior.value, 'hide');
+  assert.equal(container.querySelector('[data-setting="runningIdleDelaySeconds"]'), null);
+
+  await edit('runningIdleBehavior', 'delay');
+  assert.deepEqual(configuration.calls[0].ops, [{ op: 'set', path: ['runningIdleBehavior'], value: 'delay' }]);
+  const delay = container.querySelector('[data-setting="runningIdleDelaySeconds"]');
+  assert.ok(delay);
+  assert.equal(delay.min, '1');
+  assert.equal(delay.max, '300');
+  for (const invalid of [0, 301, 1.5]) {
+    await edit('runningIdleDelaySeconds', invalid);
+    assert.equal(configuration.calls.length, 1);
+  }
+  await edit('runningIdleDelaySeconds', 12);
+  assert.deepEqual(configuration.calls[1].ops, [{ op: 'set', path: ['runningIdleDelaySeconds'], value: 12 }]);
+  await edit('runningIdleBehavior', 'pause');
+  assert.equal(container.querySelector('[data-setting="runningIdleDelaySeconds"]'), null);
+  await edit('displayMode', 'always');
+  assert.equal(container.querySelector('[data-setting="runningIdleBehavior"]'), null, 'always mode does not show running-only options');
 });
 
 async function mountSettings(t, initial = DEFAULT_CONFIG, locale = 'zh') {
